@@ -27,7 +27,9 @@ class ValuationStore:
 
     def save(self, result_dict: dict[str, Any]) -> str:
         """Persist a valuation result and return its request_id."""
-        request_id: str = result_dict["audit_metadata"]["request_id"]
+        vr = result_dict["valuation_result"]
+        am = result_dict["audit_metadata"]
+        request_id: str = am["request_id"]
         self._conn.execute(
             """
             INSERT INTO runs (request_id, company_name, methodology, as_of_date,
@@ -36,11 +38,11 @@ class ValuationStore:
             """,
             (
                 request_id,
-                result_dict["company_name"],
-                result_dict["methodology"],
-                result_dict["as_of_date"],
-                result_dict["estimated_fair_value"]["amount"],
-                result_dict["audit_metadata"]["generated_at_utc"],
+                vr["company_name"],
+                vr["methodology"],
+                vr["as_of_date"],
+                vr["estimated_fair_value"]["amount"],
+                am["generated_at_utc"],
                 json.dumps(result_dict),
             ),
         )

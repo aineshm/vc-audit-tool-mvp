@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from vc_audit_tool.data_sources import COMPS_DATASET_VERSION
 from vc_audit_tool.exceptions import ValidationError
 from vc_audit_tool.models import Citation, MonetaryAmount, ValuationRequest, ValuationResult
 from vc_audit_tool.validation import parse_decimal, require_field
@@ -67,6 +68,8 @@ class ComparableCompaniesMethodology(ValuationMethodology):
                     "In-memory EV/Revenue multiples by ticker and sector "
                     "(vc_audit_tool.data_sources.MockComparableCompanySource)."
                 ),
+                dataset_version=COMPS_DATASET_VERSION,
+                resolved_data_points=tuple(f"{c.ticker}:ev_rev={c.ev_to_revenue}" for c in comps),
             )
         ]
 

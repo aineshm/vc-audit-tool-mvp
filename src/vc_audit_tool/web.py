@@ -248,7 +248,9 @@ HTML_PAGE = r"""<!DOCTYPE html>
   }
 
   // ── Render human-readable report ──
-  function renderReport(r) {
+  function renderReport(envelope) {
+    const r = envelope.valuation_result;
+    const meta = envelope.audit_metadata;
     const fv = r.estimated_fair_value;
     const fmt = (n) => '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 
@@ -282,10 +284,15 @@ HTML_PAGE = r"""<!DOCTYPE html>
     html += `</div>`;
 
     html += `<div class="report-section"><h3>Citations</h3>`;
-    r.citations.forEach(c => html += `<div class="citation"><strong>${c.label}</strong>: ${c.detail}</div>`);
+    r.citations.forEach(c => {
+      html += `<div class="citation"><strong>${c.label}</strong>: ${c.detail}`;
+      if (c.dataset_version) html += ` <span class="badge badge-green">v: ${c.dataset_version}</span>`;
+      if (c.resolved_data_points) html += `<br><small>Data: ${c.resolved_data_points.join(', ')}</small>`;
+      html += `</div>`;
+    });
     html += `</div>`;
 
-    html += `<div class="meta-row">Request ID: ${r.audit_metadata.request_id} · Generated: ${r.audit_metadata.generated_at_utc} · Engine v${r.audit_metadata.engine_version}</div>`;
+    html += `<div class="meta-row">Request ID: ${meta.request_id} · Generated: ${meta.generated_at_utc} · Engine v${meta.engine_version}</div>`;
     html += `</div>`;
     return html;
   }

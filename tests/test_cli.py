@@ -36,13 +36,16 @@ class CLITests(unittest.TestCase):
         result = _run_cli("--request-file", "examples/last_round_request.json")
         self.assertEqual(result.returncode, 0)
         data = json.loads(result.stdout)
-        self.assertIn("estimated_fair_value", data)
+        self.assertIn("valuation_result", data)
+        self.assertIn("audit_metadata", data)
+        self.assertIn("estimated_fair_value", data["valuation_result"])
 
     def test_comps_example_succeeds(self) -> None:
         result = _run_cli("--request-file", "examples/comps_request.json")
         self.assertEqual(result.returncode, 0)
         data = json.loads(result.stdout)
-        self.assertIn("estimated_fair_value", data)
+        self.assertIn("valuation_result", data)
+        self.assertIn("estimated_fair_value", data["valuation_result"])
 
     def test_pretty_flag_produces_indented_json(self) -> None:
         result = _run_cli("--request-file", "examples/last_round_request.json", "--pretty")

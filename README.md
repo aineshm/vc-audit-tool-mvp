@@ -78,6 +78,7 @@ flowchart LR
 - `tests/test_server.py`: HTTP endpoint integration tests (live server)
 - `tests/test_cli.py`: CLI subprocess tests (exit codes, error output)
 - `tests/test_interfaces.py`: Protocol conformance verification
+- `tests/test_determinism.py`: determinism guarantees and raw-request replay tests
 - `tests/test_store.py`: SQLite store unit tests
 - `tests/test_web.py`: web UI HTTP integration tests
 - `examples/*.json`: sample valuation requests
@@ -166,13 +167,43 @@ Comps required inputs:
 - Optional: `private_company_discount_pct` (default `0`)
 
 ## Output Schema (high-level)
-- `estimated_fair_value`
-- `inputs_used`
-- `assumptions`
-- `citations`
-- `derivation_steps`
-- `confidence_indicators`
-- `audit_metadata`
+Every response is an envelope with two top-level keys:
+
+```json
+{
+  "valuation_result": {
+    "company_name": "...",
+    "methodology": "...",
+    "as_of_date": "YYYY-MM-DD",
+    "estimated_fair_value": { "amount": 0.0, "currency": "USD" },
+    "assumptions": ["..."],
+    "inputs_used": { "...": "..." },
+    "citations": [
+      {
+        "label": "...",
+        "detail": "...",
+        "dataset_version": "mock-market-index-v1",
+        "resolved_data_points": ["NASDAQ_COMPOSITE@2024-06-30=17637.12"]
+      }
+    ],
+    "derivation_steps": ["..."],
+    "confidence_indicators": { "...": "..." }
+  },
+  "audit_metadata": {
+    "request_id": "uuid",
+    "generated_at_utc": "ISO-8601",
+    "engine_version": "0.1.0"
+  }
+}
+```
+
+**Determinism guarantee:** Repeated identical requests produce byte-identical
+`valuation_result`. Only `audit_metadata` (request_id, timestamp) varies
+between runs.
+
+**Citation trace:** Each citation includes `dataset_version` (snapshot key)
+and `resolved_data_points` (the exact data points consumed), making every
+valuation fully replay-capable.
 
 This makes each valuation transparent and easy to review in an audit file.
 
@@ -189,7 +220,7 @@ ruff format --check src/ tests/
 # Type check (mypy --strict)
 mypy
 
-# Tests (106 tests)
+# Tests (124 tests)
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
@@ -200,14 +231,16 @@ CI runs all four gates on Python 3.10, 3.12, and 3.13 via GitHub Actions.
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
-**106 tests** across 9 test modules covering:
-- Validation parser edge cases (None, wrong types, malformed dates, empty strings)
+**124 tests** across 11 test modules covering:
+- Validation parser edge cases (None, wrong types, malformed dates, empty strings, bool rejection)
 - Boundary behavior (0 values, 100% discounts, same-day round/as-of)
-- Negative paths for every methodology input field
+- Negative paths for every methodology input field (including bool-as-numeric rejection)
 - Server integration (bad JSON, wrong routes, empty bodies, correct status codes)
 - CLI behavior (missing files, malformed JSON, exit codes, pretty-print)
-- Serialization contract (schema key stability, type guarantees, version consistency)
+- Serialization contract (envelope structure, key stability, type guarantees, version consistency)
 - Protocol conformance (mock sources satisfy interface contracts)
+- Determinism (byte-identical `valuation_result` on repeat, unique `audit_metadata`, raw-request replay)
+- Citation tracing (dataset_version, resolved_data_points present in output)
 - SQLite store (save, list, get, ordering, limits)
 - Web UI HTTP layer (routes, round-trip persist, error handling)
 

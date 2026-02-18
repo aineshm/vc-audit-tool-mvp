@@ -92,7 +92,7 @@ class TestWebServer(unittest.TestCase):
     def test_valuation_round_trip(self) -> None:
         status, data = _post(self.base + "/api/value", LAST_ROUND_PAYLOAD)
         self.assertEqual(status, 200)
-        self.assertEqual(data["company_name"], "Basis AI")
+        self.assertEqual(data["valuation_result"]["company_name"], "Basis AI")
         self.assertIn("audit_metadata", data)
         rid = data["audit_metadata"]["request_id"]
 
@@ -100,7 +100,7 @@ class TestWebServer(unittest.TestCase):
         status2, body2 = _get(self.base + f"/api/runs/{rid}")
         self.assertEqual(status2, 200)
         data2 = json.loads(body2)
-        self.assertEqual(data2["company_name"], "Basis AI")
+        self.assertEqual(data2["valuation_result"]["company_name"], "Basis AI")
 
     def test_runs_list(self) -> None:
         # insert a run first so we're not order-dependent

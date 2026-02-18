@@ -10,6 +10,12 @@ from statistics import mean, median
 
 from vc_audit_tool.exceptions import DataSourceError
 
+# Snapshot identifiers — bump when underlying data changes.
+# These make every valuation output replay-capable: a consumer can
+# verify that the exact same dataset was used to produce a result.
+MARKET_INDEX_DATASET_VERSION = "mock-market-index-v1"
+COMPS_DATASET_VERSION = "mock-comps-v1"
+
 
 @dataclass(frozen=True)
 class MarketIndexPoint:

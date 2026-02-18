@@ -13,6 +13,16 @@ def require_field(payload: dict[str, Any], key: str, expected_type: type | tuple
     value = payload.get(key)
     if value is None:
         raise ValidationError(f"Missing required field: '{key}'.")
+    # Reject bool where numeric types are expected — bool is a subclass of int
+    # in Python, but accepting True/False as a "number" is a data-quality bug.
+    if isinstance(value, bool):
+        _is_numeric = (
+            expected_type is int
+            or expected_type is float
+            or (isinstance(expected_type, tuple) and any(t in (int, float) for t in expected_type))
+        )
+        if _is_numeric:
+            raise ValidationError(f"Field '{key}' must be numeric, received bool.")
     if not isinstance(value, expected_type):
         if isinstance(expected_type, tuple):
             expected_name = ", ".join(t.__name__ for t in expected_type)
@@ -34,6 +44,8 @@ def parse_date(value: str) -> date:
 
 
 def parse_decimal(value: Any, field_name: str) -> Decimal:
+    if isinstance(value, bool):
+        raise ValidationError(f"Field '{field_name}' must be numeric, received bool.")
     try:
         parsed = Decimal(str(value))
     except (InvalidOperation, ValueError, TypeError) as exc:

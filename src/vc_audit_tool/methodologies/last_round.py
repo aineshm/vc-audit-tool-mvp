@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from vc_audit_tool.data_sources import MARKET_INDEX_DATASET_VERSION
 from vc_audit_tool.models import Citation, MonetaryAmount, ValuationRequest, ValuationResult
 from vc_audit_tool.validation import parse_date, parse_decimal, require_field
 
@@ -49,6 +50,12 @@ class LastRoundMarketAdjustedMethodology(ValuationMethodology):
                 detail=(
                     "In-memory quarterly index levels for NASDAQ Composite and Russell 2000 "
                     "(vc_audit_tool.data_sources.MockMarketIndexSource)."
+                ),
+                dataset_version=MARKET_INDEX_DATASET_VERSION,
+                resolved_data_points=(
+                    f"{public_index}@{last_round_level.as_of_date.isoformat()}"
+                    f"={last_round_level.level}",
+                    f"{public_index}@{as_of_level.as_of_date.isoformat()}={as_of_level.level}",
                 ),
             )
         ]

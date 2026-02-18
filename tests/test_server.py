@@ -69,8 +69,9 @@ class ServerIntegrationTests(unittest.TestCase):
         resp = urlopen(req)
         data = json.loads(resp.read())
         self.assertEqual(resp.status, 200)
-        self.assertIn("estimated_fair_value", data)
+        self.assertIn("valuation_result", data)
         self.assertIn("audit_metadata", data)
+        self.assertIn("estimated_fair_value", data["valuation_result"])
 
     # ── Route errors ──
 

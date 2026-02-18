@@ -9,15 +9,17 @@ from pathlib import Path
 from vc_audit_tool.store import ValuationStore
 
 SAMPLE_RESULT: dict = {
-    "company_name": "Acme Inc",
-    "methodology": "last_round_market_adjusted",
-    "as_of_date": "2026-02-18",
-    "estimated_fair_value": {"amount": 120000000.0, "currency": "USD"},
-    "assumptions": ["a1"],
-    "inputs_used": {},
-    "citations": [],
-    "derivation_steps": ["step 1"],
-    "confidence_indicators": {},
+    "valuation_result": {
+        "company_name": "Acme Inc",
+        "methodology": "last_round_market_adjusted",
+        "as_of_date": "2026-02-18",
+        "estimated_fair_value": {"amount": 120000000.0, "currency": "USD"},
+        "assumptions": ["a1"],
+        "inputs_used": {},
+        "citations": [],
+        "derivation_steps": ["step 1"],
+        "confidence_indicators": {},
+    },
     "audit_metadata": {
         "request_id": "abc-123",
         "generated_at_utc": "2026-02-18T00:00:00+00:00",
@@ -42,7 +44,7 @@ class TestValuationStore(unittest.TestCase):
         fetched = self.store.get_run(rid)
         self.assertIsNotNone(fetched)
         assert fetched is not None
-        self.assertEqual(fetched["company_name"], "Acme Inc")
+        self.assertEqual(fetched["valuation_result"]["company_name"], "Acme Inc")
 
     def test_list_runs(self) -> None:
         self.store.save(SAMPLE_RESULT)
@@ -59,11 +61,15 @@ class TestValuationStore(unittest.TestCase):
 
     def test_multiple_runs_ordering(self) -> None:
         for i in range(5):
-            result = {**SAMPLE_RESULT}
-            result["company_name"] = f"Company {i}"
-            result["audit_metadata"] = {
-                **SAMPLE_RESULT["audit_metadata"],
-                "request_id": f"id-{i}",
+            result = {
+                "valuation_result": {
+                    **SAMPLE_RESULT["valuation_result"],
+                    "company_name": f"Company {i}",
+                },
+                "audit_metadata": {
+                    **SAMPLE_RESULT["audit_metadata"],
+                    "request_id": f"id-{i}",
+                },
             }
             self.store.save(result)
         runs = self.store.list_runs()
@@ -74,10 +80,12 @@ class TestValuationStore(unittest.TestCase):
 
     def test_limit(self) -> None:
         for i in range(10):
-            result = {**SAMPLE_RESULT}
-            result["audit_metadata"] = {
-                **SAMPLE_RESULT["audit_metadata"],
-                "request_id": f"id-{i}",
+            result = {
+                "valuation_result": {**SAMPLE_RESULT["valuation_result"]},
+                "audit_metadata": {
+                    **SAMPLE_RESULT["audit_metadata"],
+                    "request_id": f"id-{i}",
+                },
             }
             self.store.save(result)
         runs = self.store.list_runs(limit=3)

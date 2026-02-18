@@ -43,10 +43,19 @@ class RequireFieldTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             require_field({"": "val"}, "missing", str)
 
-    def test_bool_is_instance_of_int(self) -> None:
-        # Python quirk: bool is subclass of int
-        result = require_field({"a": True}, "a", int)
-        self.assertIs(result, True)
+    def test_bool_rejected_where_numeric_expected(self) -> None:
+        """bool must be rejected when numeric types (int, float) are expected."""
+        with self.assertRaises(ValidationError) as ctx:
+            require_field({"a": True}, "a", int)
+        self.assertIn("bool", str(ctx.exception))
+
+    def test_bool_rejected_where_numeric_tuple_expected(self) -> None:
+        with self.assertRaises(ValidationError):
+            require_field({"a": False}, "a", (int, float, str))
+
+    def test_bool_accepted_where_bool_expected(self) -> None:
+        """bool should still be accepted when the caller explicitly wants bool."""
+        self.assertIs(require_field({"a": True}, "a", bool), True)
 
 
 class ParseDateTests(unittest.TestCase):
@@ -118,6 +127,12 @@ class ParseDecimalTests(unittest.TestCase):
     def test_empty_string_raises(self) -> None:
         with self.assertRaises(ValidationError):
             parse_decimal("", "x")
+
+    def test_bool_raises(self) -> None:
+        """bool must be rejected even though bool is a subclass of int."""
+        with self.assertRaises(ValidationError) as ctx:
+            parse_decimal(True, "flag")
+        self.assertIn("bool", str(ctx.exception))
 
 
 if __name__ == "__main__":

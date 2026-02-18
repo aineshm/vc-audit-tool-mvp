@@ -21,14 +21,15 @@ class ValuationEngineTests(unittest.TestCase):
                 "public_index": "NASDAQ_COMPOSITE",
             },
         }
-        result = self.engine.evaluate_from_dict(payload).to_dict()
+        out = self.engine.evaluate_from_dict(payload).to_dict()
+        vr = out["valuation_result"]
 
-        self.assertEqual(result["methodology"], "last_round_market_adjusted")
-        self.assertAlmostEqual(result["estimated_fair_value"]["amount"], 120_831_065.39, places=2)
-        self.assertIn("index_level_last_round", result["inputs_used"])
-        self.assertIn("derivation_steps", result)
-        self.assertIn("confidence_indicators", result)
-        self.assertIn("staleness_risk", result["confidence_indicators"])
+        self.assertEqual(vr["methodology"], "last_round_market_adjusted")
+        self.assertAlmostEqual(vr["estimated_fair_value"]["amount"], 120_831_065.39, places=2)
+        self.assertIn("index_level_last_round", vr["inputs_used"])
+        self.assertIn("derivation_steps", vr)
+        self.assertIn("confidence_indicators", vr)
+        self.assertIn("staleness_risk", vr["confidence_indicators"])
 
     def test_comparable_companies(self) -> None:
         payload = {
@@ -42,14 +43,15 @@ class ValuationEngineTests(unittest.TestCase):
                 "private_company_discount_pct": 20,
             },
         }
-        result = self.engine.evaluate_from_dict(payload).to_dict()
+        out = self.engine.evaluate_from_dict(payload).to_dict()
+        vr = out["valuation_result"]
 
-        self.assertEqual(result["methodology"], "comparable_companies")
-        self.assertAlmostEqual(result["estimated_fair_value"]["amount"], 96_800_000.0)
-        self.assertEqual(result["inputs_used"]["statistic"], "median")
-        self.assertGreater(len(result["inputs_used"]["peer_companies"]), 0)
-        self.assertIn("confidence_indicators", result)
-        self.assertIn("peer_set_quality", result["confidence_indicators"])
+        self.assertEqual(vr["methodology"], "comparable_companies")
+        self.assertAlmostEqual(vr["estimated_fair_value"]["amount"], 96_800_000.0)
+        self.assertEqual(vr["inputs_used"]["statistic"], "median")
+        self.assertGreater(len(vr["inputs_used"]["peer_companies"]), 0)
+        self.assertIn("confidence_indicators", vr)
+        self.assertIn("peer_set_quality", vr["confidence_indicators"])
 
     def test_unknown_methodology_raises(self) -> None:
         payload = {

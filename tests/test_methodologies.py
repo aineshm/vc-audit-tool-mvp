@@ -33,38 +33,38 @@ class LastRoundEdgeCaseTests(unittest.TestCase):
     def test_same_day_round_and_as_of(self) -> None:
         """When round date equals as-of date, value should be unchanged."""
         payload = self._payload(last_round_date="2026-02-18")
-        result = self.engine.evaluate_from_dict(payload).to_dict()
-        self.assertAlmostEqual(result["estimated_fair_value"]["amount"], 100_000_000.0, places=2)
+        vr = self.engine.evaluate_from_dict(payload).to_dict()["valuation_result"]
+        self.assertAlmostEqual(vr["estimated_fair_value"]["amount"], 100_000_000.0, places=2)
 
     def test_zero_valuation(self) -> None:
         """Zero post-money should produce zero fair value."""
         payload = self._payload(last_post_money_valuation=0)
-        result = self.engine.evaluate_from_dict(payload).to_dict()
-        self.assertAlmostEqual(result["estimated_fair_value"]["amount"], 0.0)
+        vr = self.engine.evaluate_from_dict(payload).to_dict()["valuation_result"]
+        self.assertAlmostEqual(vr["estimated_fair_value"]["amount"], 0.0)
 
     def test_string_valuation_accepted(self) -> None:
         """Numeric strings should be accepted for last_post_money_valuation."""
         payload = self._payload(last_post_money_valuation="50000000")
-        result = self.engine.evaluate_from_dict(payload).to_dict()
-        self.assertGreater(result["estimated_fair_value"]["amount"], 0)
+        vr = self.engine.evaluate_from_dict(payload).to_dict()["valuation_result"]
+        self.assertGreater(vr["estimated_fair_value"]["amount"], 0)
 
     def test_russell_2000_index(self) -> None:
         """Alternative index should work."""
         payload = self._payload(public_index="RUSSELL_2000")
-        result = self.engine.evaluate_from_dict(payload).to_dict()
-        self.assertGreater(result["estimated_fair_value"]["amount"], 0)
+        vr = self.engine.evaluate_from_dict(payload).to_dict()["valuation_result"]
+        self.assertGreater(vr["estimated_fair_value"]["amount"], 0)
 
     def test_confidence_staleness_high(self) -> None:
         """Round >12 months ago should produce HIGH staleness risk."""
         payload = self._payload(last_round_date="2024-06-30")
-        result = self.engine.evaluate_from_dict(payload).to_dict()
-        self.assertIn("HIGH", result["confidence_indicators"]["staleness_risk"])
+        vr = self.engine.evaluate_from_dict(payload).to_dict()["valuation_result"]
+        self.assertIn("HIGH", vr["confidence_indicators"]["staleness_risk"])
 
     def test_confidence_staleness_low(self) -> None:
         """Recent round should produce LOW staleness risk."""
         payload = self._payload(last_round_date="2025-12-31")
-        result = self.engine.evaluate_from_dict(payload).to_dict()
-        self.assertIn("LOW", result["confidence_indicators"]["staleness_risk"])
+        vr = self.engine.evaluate_from_dict(payload).to_dict()["valuation_result"]
+        self.assertIn("LOW", vr["confidence_indicators"]["staleness_risk"])
 
     # ── Negative / error cases ──
 
@@ -108,6 +108,12 @@ class LastRoundEdgeCaseTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             self.engine.evaluate_from_dict(payload)
 
+    def test_bool_valuation_rejected(self) -> None:
+        """bool is technically int subclass but must be rejected for numeric fields."""
+        payload = self._payload(last_post_money_valuation=True)
+        with self.assertRaises(ValidationError):
+            self.engine.evaluate_from_dict(payload)
+
     def test_date_before_all_index_data_raises(self) -> None:
         payload = self._payload(last_round_date="2020-01-01")
         # as_of_date is fine but last_round_date is before any data
@@ -140,44 +146,44 @@ class CompsEdgeCaseTests(unittest.TestCase):
 
     def test_zero_revenue_produces_zero_value(self) -> None:
         payload = self._payload(revenue_ltm=0)
-        result = self.engine.evaluate_from_dict(payload).to_dict()
-        self.assertAlmostEqual(result["estimated_fair_value"]["amount"], 0.0)
+        vr = self.engine.evaluate_from_dict(payload).to_dict()["valuation_result"]
+        self.assertAlmostEqual(vr["estimated_fair_value"]["amount"], 0.0)
 
     def test_100_pct_discount_produces_zero_value(self) -> None:
         payload = self._payload(private_company_discount_pct=100)
-        result = self.engine.evaluate_from_dict(payload).to_dict()
-        self.assertAlmostEqual(result["estimated_fair_value"]["amount"], 0.0)
+        vr = self.engine.evaluate_from_dict(payload).to_dict()["valuation_result"]
+        self.assertAlmostEqual(vr["estimated_fair_value"]["amount"], 0.0)
 
     def test_no_discount_matches_gross(self) -> None:
         payload = self._payload(private_company_discount_pct=0)
-        result = self.engine.evaluate_from_dict(payload).to_dict()
+        vr = self.engine.evaluate_from_dict(payload).to_dict()["valuation_result"]
         # 4 enterprise_software comps, median of [13.1, 12.4, 9.2, 11.8] = 12.1
         expected_gross = 10_000_000 * 12.1
-        self.assertAlmostEqual(result["estimated_fair_value"]["amount"], expected_gross, places=0)
+        self.assertAlmostEqual(vr["estimated_fair_value"]["amount"], expected_gross, places=0)
 
     def test_mean_statistic(self) -> None:
         payload = self._payload(statistic="mean")
-        result = self.engine.evaluate_from_dict(payload).to_dict()
-        self.assertGreater(result["estimated_fair_value"]["amount"], 0)
-        self.assertEqual(result["inputs_used"]["statistic"], "mean")
+        vr = self.engine.evaluate_from_dict(payload).to_dict()["valuation_result"]
+        self.assertGreater(vr["estimated_fair_value"]["amount"], 0)
+        self.assertEqual(vr["inputs_used"]["statistic"], "mean")
 
     def test_explicit_peer_tickers(self) -> None:
         payload = self._payload(peer_tickers=["SNOW", "DDOG"])
-        result = self.engine.evaluate_from_dict(payload).to_dict()
-        tickers = [p["ticker"] for p in result["inputs_used"]["peer_companies"]]
+        vr = self.engine.evaluate_from_dict(payload).to_dict()["valuation_result"]
+        tickers = [p["ticker"] for p in vr["inputs_used"]["peer_companies"]]
         self.assertEqual(sorted(tickers), ["DDOG", "SNOW"])
 
     def test_confidence_peer_set_quality_high(self) -> None:
         """Sector with 4 comps → should be MEDIUM."""
         payload = self._payload(sector="enterprise_software")
-        result = self.engine.evaluate_from_dict(payload).to_dict()
-        self.assertIn("MEDIUM", result["confidence_indicators"]["peer_set_quality"])
+        vr = self.engine.evaluate_from_dict(payload).to_dict()["valuation_result"]
+        self.assertIn("MEDIUM", vr["confidence_indicators"]["peer_set_quality"])
 
     def test_confidence_peer_set_quality_high_with_5_plus(self) -> None:
         """Explicit 5 tickers → HIGH quality."""
         payload = self._payload(peer_tickers=["SNOW", "DDOG", "MDB", "ZS", "S"])
-        result = self.engine.evaluate_from_dict(payload).to_dict()
-        self.assertIn("HIGH", result["confidence_indicators"]["peer_set_quality"])
+        vr = self.engine.evaluate_from_dict(payload).to_dict()["valuation_result"]
+        self.assertIn("HIGH", vr["confidence_indicators"]["peer_set_quality"])
 
     # ── Negative / error cases ──
 
@@ -233,6 +239,18 @@ class CompsEdgeCaseTests(unittest.TestCase):
 
     def test_non_numeric_revenue_raises(self) -> None:
         payload = self._payload(revenue_ltm="lots")
+        with self.assertRaises(ValidationError):
+            self.engine.evaluate_from_dict(payload)
+
+    def test_bool_revenue_rejected(self) -> None:
+        """bool is technically int subclass but must be rejected for numeric fields."""
+        payload = self._payload(revenue_ltm=False)
+        with self.assertRaises(ValidationError):
+            self.engine.evaluate_from_dict(payload)
+
+    def test_bool_discount_rejected(self) -> None:
+        """bool must be rejected for discount percentage as well."""
+        payload = self._payload(private_company_discount_pct=True)
         with self.assertRaises(ValidationError):
             self.engine.evaluate_from_dict(payload)
 

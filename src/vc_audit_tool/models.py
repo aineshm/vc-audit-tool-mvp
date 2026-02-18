@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
@@ -16,6 +16,16 @@ from vc_audit_tool.validation import parse_date, require_field
 class Citation:
     label: str
     detail: str
+    dataset_version: str = ""
+    resolved_data_points: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"label": self.label, "detail": self.detail}
+        if self.dataset_version:
+            d["dataset_version"] = self.dataset_version
+        if self.resolved_data_points:
+            d["resolved_data_points"] = list(self.resolved_data_points)
+        return d
 
 
 @dataclass(frozen=True)
@@ -39,8 +49,8 @@ class ValuationRequest:
         company_name = require_field(payload, "company_name", str)
         methodology = require_field(payload, "methodology", str)
         inputs = require_field(payload, "inputs", dict)
-        as_of_raw = payload.get("as_of_date")
-        as_of_date = parse_date(as_of_raw) if as_of_raw else date.today()
+        as_of_raw = require_field(payload, "as_of_date", str)
+        as_of_date = parse_date(as_of_raw)
         return ValuationRequest(
             company_name=company_name,
             methodology=methodology,
@@ -67,16 +77,19 @@ class ValuationResult:
     engine_version: str = field(default_factory=lambda: __version__)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        valuation_result: dict[str, Any] = {
             "company_name": self.company_name,
             "methodology": self.methodology,
             "as_of_date": self.as_of_date.isoformat(),
             "estimated_fair_value": self.estimated_fair_value.to_dict(),
             "assumptions": self.assumptions,
             "inputs_used": self.inputs_used,
-            "citations": [asdict(citation) for citation in self.citations],
+            "citations": [c.to_dict() for c in self.citations],
             "derivation_steps": self.derivation_steps,
             "confidence_indicators": self.confidence_indicators,
+        }
+        return {
+            "valuation_result": valuation_result,
             "audit_metadata": {
                 "request_id": self.request_id,
                 "generated_at_utc": self.generated_at_utc,
