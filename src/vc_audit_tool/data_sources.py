@@ -13,8 +13,8 @@ from vc_audit_tool.exceptions import DataSourceError
 # Snapshot identifiers — bump when underlying data changes.
 # These make every valuation output replay-capable: a consumer can
 # verify that the exact same dataset was used to produce a result.
-MARKET_INDEX_DATASET_VERSION = "mock-market-index-v1"
-COMPS_DATASET_VERSION = "mock-comps-v1"
+MARKET_INDEX_DATASET_VERSION = "mock-market-index-v2"
+COMPS_DATASET_VERSION = "mock-comps-v2"
 
 
 @dataclass(frozen=True)
@@ -36,27 +36,62 @@ class MockMarketIndexSource:
 
     _INDEX_LEVELS: dict[str, dict[str, Decimal]] = {
         "NASDAQ_COMPOSITE": {
+            # Monthly data — more realistic for market-adjustment calculations.
             "2023-12-31": Decimal("15011.35"),
+            "2024-01-31": Decimal("15164.01"),
+            "2024-02-29": Decimal("15580.88"),
             "2024-03-31": Decimal("16379.46"),
+            "2024-04-30": Decimal("16002.33"),
+            "2024-05-31": Decimal("16735.02"),
             "2024-06-30": Decimal("17637.12"),
+            "2024-07-31": Decimal("17120.90"),
+            "2024-08-31": Decimal("17400.55"),
             "2024-09-30": Decimal("16828.43"),
+            "2024-10-31": Decimal("17211.78"),
+            "2024-11-30": Decimal("18012.66"),
             "2024-12-31": Decimal("18842.12"),
+            "2025-01-31": Decimal("18450.44"),
+            "2025-02-28": Decimal("18190.70"),
             "2025-03-31": Decimal("18032.90"),
+            "2025-04-30": Decimal("18522.15"),
+            "2025-05-31": Decimal("19010.33"),
             "2025-06-30": Decimal("19422.55"),
+            "2025-07-31": Decimal("19800.12"),
+            "2025-08-31": Decimal("19955.40"),
             "2025-09-30": Decimal("20122.04"),
+            "2025-10-31": Decimal("20440.72"),
+            "2025-11-30": Decimal("20688.15"),
             "2025-12-31": Decimal("20905.88"),
+            "2026-01-31": Decimal("21100.45"),
             "2026-02-18": Decimal("21311.12"),
         },
         "RUSSELL_2000": {
             "2023-12-31": Decimal("2011.44"),
+            "2024-01-31": Decimal("2028.90"),
+            "2024-02-29": Decimal("2065.33"),
             "2024-03-31": Decimal("2107.88"),
+            "2024-04-30": Decimal("2040.19"),
+            "2024-05-31": Decimal("2048.55"),
             "2024-06-30": Decimal("2056.31"),
+            "2024-07-31": Decimal("2102.44"),
+            "2024-08-31": Decimal("2155.70"),
             "2024-09-30": Decimal("2190.04"),
+            "2024-10-31": Decimal("2210.33"),
+            "2024-11-30": Decimal("2232.88"),
             "2024-12-31": Decimal("2251.11"),
+            "2025-01-31": Decimal("2220.50"),
+            "2025-02-28": Decimal("2198.33"),
             "2025-03-31": Decimal("2176.92"),
+            "2025-04-30": Decimal("2215.44"),
+            "2025-05-31": Decimal("2255.80"),
             "2025-06-30": Decimal("2294.53"),
+            "2025-07-31": Decimal("2310.66"),
+            "2025-08-31": Decimal("2325.40"),
             "2025-09-30": Decimal("2340.19"),
+            "2025-10-31": Decimal("2358.90"),
+            "2025-11-30": Decimal("2374.15"),
             "2025-12-31": Decimal("2389.44"),
+            "2026-01-31": Decimal("2401.22"),
             "2026-02-18": Decimal("2412.90"),
         },
     }
@@ -80,13 +115,21 @@ class MockComparableCompanySource:
     """In-memory public comps with sector-based filtering."""
 
     _COMPS: tuple[ComparableCompany, ...] = (
+        # enterprise_software — 7 peers → triggers peer_set_quality "HIGH"
         ComparableCompany("SNOW", "Snowflake", "enterprise_software", Decimal("13.1")),
         ComparableCompany("DDOG", "Datadog", "enterprise_software", Decimal("12.4")),
         ComparableCompany("MDB", "MongoDB", "enterprise_software", Decimal("9.2")),
         ComparableCompany("ZS", "Zscaler", "enterprise_software", Decimal("11.8")),
+        ComparableCompany("HUBS", "HubSpot", "enterprise_software", Decimal("10.5")),
+        ComparableCompany("NOW", "ServiceNow", "enterprise_software", Decimal("14.8")),
+        ComparableCompany("TEAM", "Atlassian", "enterprise_software", Decimal("11.2")),
+        # cybersecurity — 5 peers → also triggers "HIGH"
         ComparableCompany("S", "SentinelOne", "cybersecurity", Decimal("8.6")),
         ComparableCompany("CRWD", "CrowdStrike", "cybersecurity", Decimal("14.2")),
         ComparableCompany("OKTA", "Okta", "cybersecurity", Decimal("7.7")),
+        ComparableCompany("PANW", "Palo Alto Networks", "cybersecurity", Decimal("10.9")),
+        ComparableCompany("FTNT", "Fortinet", "cybersecurity", Decimal("9.4")),
+        # infrastructure_software — 3 peers → "MEDIUM"
         ComparableCompany("NET", "Cloudflare", "infrastructure_software", Decimal("16.1")),
         ComparableCompany("FSLY", "Fastly", "infrastructure_software", Decimal("3.8")),
         ComparableCompany("ESTC", "Elastic", "infrastructure_software", Decimal("5.3")),

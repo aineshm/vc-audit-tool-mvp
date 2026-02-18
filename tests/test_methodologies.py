@@ -157,8 +157,8 @@ class CompsEdgeCaseTests(unittest.TestCase):
     def test_no_discount_matches_gross(self) -> None:
         payload = self._payload(private_company_discount_pct=0)
         vr = self.engine.evaluate_from_dict(payload).to_dict()["valuation_result"]
-        # 4 enterprise_software comps, median of [13.1, 12.4, 9.2, 11.8] = 12.1
-        expected_gross = 10_000_000 * 12.1
+        # 7 enterprise_software comps, median of [9.2, 10.5, 11.2, 11.8, 12.4, 13.1, 14.8] = 11.8
+        expected_gross = 10_000_000 * 11.8
         self.assertAlmostEqual(vr["estimated_fair_value"]["amount"], expected_gross, places=0)
 
     def test_mean_statistic(self) -> None:
@@ -174,10 +174,10 @@ class CompsEdgeCaseTests(unittest.TestCase):
         self.assertEqual(sorted(tickers), ["DDOG", "SNOW"])
 
     def test_confidence_peer_set_quality_high(self) -> None:
-        """Sector with 4 comps → should be MEDIUM."""
+        """Sector with 7 comps → should be HIGH."""
         payload = self._payload(sector="enterprise_software")
         vr = self.engine.evaluate_from_dict(payload).to_dict()["valuation_result"]
-        self.assertIn("MEDIUM", vr["confidence_indicators"]["peer_set_quality"])
+        self.assertIn("HIGH", vr["confidence_indicators"]["peer_set_quality"])
 
     def test_confidence_peer_set_quality_high_with_5_plus(self) -> None:
         """Explicit 5 tickers → HIGH quality."""

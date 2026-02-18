@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import unittest
 
+from vc_audit_tool.data_sources import MockComparableCompanySource, MockMarketIndexSource
 from vc_audit_tool.engine import ValuationEngine
 from vc_audit_tool.exceptions import DataSourceError, ValidationError
+from vc_audit_tool.interfaces import ComparableCompanySource, MarketIndexSource
 
 
 class ValuationEngineTests(unittest.TestCase):
@@ -47,7 +49,7 @@ class ValuationEngineTests(unittest.TestCase):
         vr = out["valuation_result"]
 
         self.assertEqual(vr["methodology"], "comparable_companies")
-        self.assertAlmostEqual(vr["estimated_fair_value"]["amount"], 96_800_000.0)
+        self.assertAlmostEqual(vr["estimated_fair_value"]["amount"], 94_400_000.0)
         self.assertEqual(vr["inputs_used"]["statistic"], "median")
         self.assertGreater(len(vr["inputs_used"]["peer_companies"]), 0)
         self.assertIn("confidence_indicators", vr)
@@ -75,6 +77,18 @@ class ValuationEngineTests(unittest.TestCase):
         }
         with self.assertRaises(DataSourceError):
             self.engine.evaluate_from_dict(payload)
+
+
+class ProtocolConformanceTests(unittest.TestCase):
+    """Verify mock implementations satisfy their Protocol contracts at runtime."""
+
+    def test_mock_market_index_is_market_index_source(self) -> None:
+        source = MockMarketIndexSource()
+        self.assertIsInstance(source, MarketIndexSource)
+
+    def test_mock_comps_is_comparable_company_source(self) -> None:
+        source = MockComparableCompanySource()
+        self.assertIsInstance(source, ComparableCompanySource)
 
 
 if __name__ == "__main__":
