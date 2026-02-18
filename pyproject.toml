@@ -10,6 +10,11 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
 
+[project.scripts]
+vc-audit-server = "vc_audit_tool.server:main"
+vc-audit-web = "vc_audit_tool.web:main"
+vc-audit = "vc_audit_tool.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "mypy>=1.10",
@@ -46,6 +51,10 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["vc_audit_tool"]
+
+[tool.ruff.lint.per-file-ignores]
+# web.py embeds a raw HTML/CSS/JS template string — CSS lines exceed 100 chars.
+"src/vc_audit_tool/web.py" = ["E501"]
 
 # ── Mypy (strict type checking) ──
 [tool.mypy]

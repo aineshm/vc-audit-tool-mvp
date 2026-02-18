@@ -69,6 +69,8 @@ flowchart LR
 - `src/vc_audit_tool/methodologies/comps.py`: comparable-company model
 - `src/vc_audit_tool/cli.py`: command-line entry point
 - `src/vc_audit_tool/server.py`: HTTP JSON API (`POST /value`, `GET /health`) with structured logging
+- `src/vc_audit_tool/web.py`: minimal web UI (single-page app + SQLite persistence)
+- `src/vc_audit_tool/store.py`: SQLite audit-trail store for past valuation runs
 - `tests/test_engine.py`: core engine integration tests
 - `tests/test_validation.py`: parser edge-case unit tests
 - `tests/test_methodologies.py`: boundary + negative-path tests for both methodologies
@@ -76,6 +78,8 @@ flowchart LR
 - `tests/test_server.py`: HTTP endpoint integration tests (live server)
 - `tests/test_cli.py`: CLI subprocess tests (exit codes, error output)
 - `tests/test_interfaces.py`: Protocol conformance verification
+- `tests/test_store.py`: SQLite store unit tests
+- `tests/test_web.py`: web UI HTTP integration tests
 - `examples/*.json`: sample valuation requests
 - `.github/workflows/ci.yml`: CI pipeline (lint + type-check + test)
 
@@ -126,6 +130,19 @@ curl -X POST http://127.0.0.1:8080/value \
   -d @examples/last_round_request.json
 ```
 
+### Web UI (interactive)
+Start the web UI (includes SQLite persistence for past runs):
+```bash
+PYTHONPATH=src python3 -m vc_audit_tool.web --port 8090
+```
+Then open **http://127.0.0.1:8090** in your browser.
+
+Features:
+- **Editable request form** — select methodology, edit every input field, submit
+- **Human-readable report** — fair value, derivation steps, assumptions, citations, confidence indicators
+- **Past runs sidebar** — all historical valuations stored in SQLite, click to reload any past report
+- **API endpoints** — `POST /api/value` (run + persist), `GET /api/runs` (list), `GET /api/runs/{id}` (detail)
+
 ## Input Schema (request)
 ```json
 {
@@ -172,7 +189,7 @@ ruff format --check src/ tests/
 # Type check (mypy --strict)
 mypy
 
-# Tests (92 tests)
+# Tests (106 tests)
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
@@ -183,7 +200,7 @@ CI runs all four gates on Python 3.10, 3.12, and 3.13 via GitHub Actions.
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
-**92 tests** across 7 test modules covering:
+**106 tests** across 9 test modules covering:
 - Validation parser edge cases (None, wrong types, malformed dates, empty strings)
 - Boundary behavior (0 values, 100% discounts, same-day round/as-of)
 - Negative paths for every methodology input field
@@ -191,12 +208,13 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 - CLI behavior (missing files, malformed JSON, exit codes, pretty-print)
 - Serialization contract (schema key stability, type guarantees, version consistency)
 - Protocol conformance (mock sources satisfy interface contracts)
+- SQLite store (save, list, get, ordering, limits)
+- Web UI HTTP layer (routes, round-trip persist, error handling)
 
 ## Potential Improvements (if more time)
 - Add a third methodology (DCF) with projection file ingestion and scenario support.
 - Implement real data-source adapters behind the existing Protocol interfaces (e.g., Yahoo Finance, Bloomberg) with caching and retry logic.
-- Persist valuation runs to a datastore for longitudinal audit trails and approvals.
 - Add user/authn and role-based controls for audit teams.
-- Build a simple frontend for analysts to compare multiple methods side-by-side.
 - Add hash-chain or signed-payload support for tamper-evident valuation records.
 - Methodology versioning to guarantee reproducibility of historical valuations.
+- Side-by-side comparison view in the web UI (run multiple methodologies for the same company).
