@@ -1,0 +1,11 @@
+{
+  "company_name": "Inflo",
+  "methodology": "comparable_companies",
+  "as_of_date": "2026-02-18",
+  "inputs": {
+    "sector": "enterprise_software",
+    "revenue_ltm": 10000000,
+    "statistic": "median",
+    "private_company_discount_pct": 20
+  }
+}

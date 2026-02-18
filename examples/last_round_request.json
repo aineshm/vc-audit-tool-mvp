@@ -1,0 +1,10 @@
+{
+  "company_name": "Basis AI",
+  "methodology": "last_round_market_adjusted",
+  "as_of_date": "2026-02-18",
+  "inputs": {
+    "last_post_money_valuation": 100000000,
+    "last_round_date": "2024-06-30",
+    "public_index": "NASDAQ_COMPOSITE"
+  }
+}

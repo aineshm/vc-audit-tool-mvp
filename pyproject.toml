@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vc-audit-tool"
+version = "0.1.0"
+description = "Auditable private company valuation workflow for VC portfolios."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.10",
+    "ruff>=0.4",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ── Ruff (linter + formatter) ──
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "A",    # flake8-builtins
+    "T20",  # flake8-print (flag print statements in library code)
+]
+ignore = [
+    "T201",  # allow print() in CLI/server entry points
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["vc_audit_tool"]
+
+# ── Mypy (strict type checking) ──
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+mypy_path = "src"
+packages = ["vc_audit_tool"]
