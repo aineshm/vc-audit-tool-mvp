@@ -8,17 +8,21 @@ version = "0.1.0"
 description = "Auditable private company valuation workflow for VC portfolios."
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+]
 
 [project.scripts]
 vc-audit-server = "vc_audit_tool.server:main"
-vc-audit-web = "vc_audit_tool.web:main"
 vc-audit = "vc_audit_tool.cli:main"
 
 [project.optional-dependencies]
 dev = [
     "mypy>=1.10",
     "ruff>=0.4",
+    "httpx>=0.27",
+    "pytest>=8.0",
 ]
 
 [tool.setuptools]
@@ -53,8 +57,8 @@ ignore = [
 known-first-party = ["vc_audit_tool"]
 
 [tool.ruff.lint.per-file-ignores]
-# web.py embeds a raw HTML/CSS/JS template string — CSS lines exceed 100 chars.
-"src/vc_audit_tool/web.py" = ["E501"]
+# server.py embeds a raw HTML/CSS/JS template string — CSS lines exceed 100 chars.
+"src/vc_audit_tool/server.py" = ["E501"]
 
 # ── Mypy (strict type checking) ──
 [tool.mypy]
@@ -65,3 +69,7 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 mypy_path = "src"
 packages = ["vc_audit_tool"]
+
+[[tool.mypy.overrides]]
+module = ["uvicorn", "uvicorn.*"]
+ignore_missing_imports = true

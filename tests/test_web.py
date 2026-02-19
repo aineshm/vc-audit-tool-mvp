@@ -1,17 +1,13 @@
-"""Tests for the web UI HTTP layer."""
+"""Tests for web UI routes in the FastAPI server."""
 
 from __future__ import annotations
 
 import json
-import tempfile
-import threading
 import unittest
-import urllib.request
-from http.server import ThreadingHTTPServer
-from pathlib import Path
 
-from vc_audit_tool.store import ValuationStore
-from vc_audit_tool.web import WebHandler
+from starlette.testclient import TestClient
+
+from vc_audit_tool.server import app
 
 LAST_ROUND_PAYLOAD = {
     "company_name": "Basis AI",
@@ -25,111 +21,67 @@ LAST_ROUND_PAYLOAD = {
 }
 
 
-def _get(url: str) -> tuple[int, bytes]:
-    try:
-        resp = urllib.request.urlopen(url)
-        return resp.status, resp.read()
-    except urllib.error.HTTPError as e:
-        return e.code, e.read()
+class TestWebRoutes(unittest.TestCase):
+    """Test the web-facing routes via TestClient."""
 
-
-def _post(url: str, body: dict) -> tuple[int, dict]:  # type: ignore[type-arg]
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-    try:
-        resp = urllib.request.urlopen(req)
-        return resp.status, json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read())
-
-
-class TestWebServer(unittest.TestCase):
-    server: ThreadingHTTPServer
-    port: int
-    tmpdir: tempfile.TemporaryDirectory[str]
+    client: TestClient
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.tmpdir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.tmpdir.name) / "test_web.db"
-        WebHandler.store = ValuationStore(db_path)
-        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), WebHandler)
-        cls.port = cls.server.server_address[1]
-        t = threading.Thread(target=cls.server.serve_forever, daemon=True)
-        t.start()
+        cls.client = TestClient(app)
 
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.server.shutdown()
-        cls.server.server_close()
-        WebHandler.store.close()
-        cls.tmpdir.cleanup()
-
-    @property
-    def base(self) -> str:
-        return f"http://127.0.0.1:{self.port}"
-
-    # ── GET routes ──
+    # -- GET / --
 
     def test_root_returns_html(self) -> None:
-        status, body = _get(self.base + "/")
-        self.assertEqual(status, 200)
-        self.assertIn(b"VC Audit Tool", body)
-        self.assertIn(b"</html>", body)
+        resp = self.client.get("/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("text/html", resp.headers["content-type"])
+        self.assertIn("VC Audit Tool", resp.text)
 
     def test_health(self) -> None:
-        status, body = _get(self.base + "/health")
-        self.assertEqual(status, 200)
-        data = json.loads(body)
-        self.assertEqual(data["status"], "ok")
+        resp = self.client.get("/health")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["status"], "ok")
 
     def test_not_found(self) -> None:
-        status, _ = _get(self.base + "/nope")
-        self.assertEqual(status, 404)
+        resp = self.client.get("/nope")
+        self.assertEqual(resp.status_code, 404)
 
-    # ── POST /api/value ──
+    # -- POST /api/value --
 
     def test_valuation_round_trip(self) -> None:
-        status, data = _post(self.base + "/api/value", LAST_ROUND_PAYLOAD)
-        self.assertEqual(status, 200)
+        resp = self.client.post("/api/value", content=json.dumps(LAST_ROUND_PAYLOAD))
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
         self.assertEqual(data["valuation_result"]["company_name"], "Basis AI")
         self.assertIn("audit_metadata", data)
         rid = data["audit_metadata"]["request_id"]
 
         # verify persisted
-        status2, body2 = _get(self.base + f"/api/runs/{rid}")
-        self.assertEqual(status2, 200)
-        data2 = json.loads(body2)
-        self.assertEqual(data2["valuation_result"]["company_name"], "Basis AI")
+        resp2 = self.client.get(f"/api/runs/{rid}")
+        self.assertEqual(resp2.status_code, 200)
+        self.assertEqual(resp2.json()["valuation_result"]["company_name"], "Basis AI")
 
     def test_runs_list(self) -> None:
-        # insert a run first so we're not order-dependent
-        _post(self.base + "/api/value", LAST_ROUND_PAYLOAD)
-        status, body = _get(self.base + "/api/runs")
-        self.assertEqual(status, 200)
-        runs = json.loads(body)
+        self.client.post("/api/value", content=json.dumps(LAST_ROUND_PAYLOAD))
+        resp = self.client.get("/api/runs")
+        self.assertEqual(resp.status_code, 200)
+        runs = resp.json()
         self.assertIsInstance(runs, list)
         self.assertGreaterEqual(len(runs), 1)
 
     def test_run_not_found(self) -> None:
-        status, _ = _get(self.base + "/api/runs/nonexistent")
-        self.assertEqual(status, 404)
+        resp = self.client.get("/api/runs/nonexistent")
+        self.assertEqual(resp.status_code, 404)
 
     def test_bad_json(self) -> None:
-        req = urllib.request.Request(
-            self.base + "/api/value",
-            data=b"not json",
-            headers={"Content-Type": "application/json"},
-        )
-        try:
-            urllib.request.urlopen(req)
-        except urllib.error.HTTPError as e:
-            self.assertEqual(e.code, 400)
+        resp = self.client.post("/api/value", content=b"not json")
+        self.assertEqual(resp.status_code, 400)
 
     def test_validation_error(self) -> None:
-        status, data = _post(self.base + "/api/value", {"methodology": "bad"})
-        self.assertEqual(status, 400)
-        self.assertIn("error", data)
+        resp = self.client.post("/api/value", content=json.dumps({"methodology": "bad"}))
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.json())
 
 
 if __name__ == "__main__":

@@ -1,54 +1,32 @@
-"""Integration tests for the HTTP API (server.py)."""
+"""Integration tests for the FastAPI server (server.py)."""
 
 from __future__ import annotations
 
 import json
-import threading
 import unittest
-from http.server import ThreadingHTTPServer
-from urllib.error import HTTPError
-from urllib.request import Request, urlopen
 
-from vc_audit_tool.server import ValuationRequestHandler
+from starlette.testclient import TestClient
 
-
-def _find_free_port() -> int:
-    import socket
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+from vc_audit_tool.server import app
 
 
 class ServerIntegrationTests(unittest.TestCase):
-    """Spin up a real HTTP server per test class and hit it with real requests."""
+    """Hit the FastAPI app via TestClient -- no real socket needed."""
 
-    server: ThreadingHTTPServer
-    thread: threading.Thread
-    base_url: str
+    client: TestClient
 
     @classmethod
     def setUpClass(cls) -> None:
-        port = _find_free_port()
-        cls.server = ThreadingHTTPServer(("127.0.0.1", port), ValuationRequestHandler)
-        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
-        cls.thread.start()
-        cls.base_url = f"http://127.0.0.1:{port}"
+        cls.client = TestClient(app)
 
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.server.shutdown()
-        cls.server.server_close()
-
-    # ── Health ──
+    # -- Health --
 
     def test_health_endpoint(self) -> None:
-        resp = urlopen(f"{self.base_url}/health")
-        data = json.loads(resp.read())
-        self.assertEqual(resp.status, 200)
-        self.assertEqual(data["status"], "ok")
+        resp = self.client.get("/health")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["status"], "ok")
 
-    # ── Successful valuation ──
+    # -- Successful valuation --
 
     def test_post_valid_last_round(self) -> None:
         payload = {
@@ -60,75 +38,38 @@ class ServerIntegrationTests(unittest.TestCase):
                 "last_round_date": "2024-06-30",
             },
         }
-        req = Request(
-            f"{self.base_url}/value",
-            data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        resp = urlopen(req)
-        data = json.loads(resp.read())
-        self.assertEqual(resp.status, 200)
+        resp = self.client.post("/value", content=json.dumps(payload))
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
         self.assertIn("valuation_result", data)
         self.assertIn("audit_metadata", data)
         self.assertIn("estimated_fair_value", data["valuation_result"])
 
-    # ── Route errors ──
+    # -- Route errors --
 
     def test_get_unknown_route_returns_404(self) -> None:
-        with self.assertRaises(HTTPError) as ctx:
-            urlopen(f"{self.base_url}/nonexistent")
-        self.assertEqual(ctx.exception.code, 404)
+        resp = self.client.get("/nonexistent")
+        self.assertEqual(resp.status_code, 404)
 
     def test_post_wrong_route_returns_404(self) -> None:
-        req = Request(
-            f"{self.base_url}/other",
-            data=b"{}",
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with self.assertRaises(HTTPError) as ctx:
-            urlopen(req)
-        self.assertEqual(ctx.exception.code, 404)
+        resp = self.client.post("/other", content=b"{}")
+        self.assertEqual(resp.status_code, 404)
 
-    # ── Bad request bodies ──
+    # -- Bad request bodies --
 
     def test_post_invalid_json_returns_400(self) -> None:
-        req = Request(
-            f"{self.base_url}/value",
-            data=b"not json",
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with self.assertRaises(HTTPError) as ctx:
-            urlopen(req)
-        self.assertEqual(ctx.exception.code, 400)
-        body = json.loads(ctx.exception.read())
-        self.assertIn("error", body)
+        resp = self.client.post("/value", content=b"not json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.json())
 
     def test_post_empty_body_returns_400(self) -> None:
-        req = Request(
-            f"{self.base_url}/value",
-            data=b"",
-            headers={"Content-Type": "application/json", "Content-Length": "0"},
-            method="POST",
-        )
-        with self.assertRaises(HTTPError) as ctx:
-            urlopen(req)
-        self.assertEqual(ctx.exception.code, 400)
+        resp = self.client.post("/value", content=b"")
+        self.assertEqual(resp.status_code, 400)
 
     def test_post_missing_fields_returns_400(self) -> None:
-        req = Request(
-            f"{self.base_url}/value",
-            data=json.dumps({"company_name": "X"}).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with self.assertRaises(HTTPError) as ctx:
-            urlopen(req)
-        self.assertEqual(ctx.exception.code, 400)
-        body = json.loads(ctx.exception.read())
-        self.assertIn("error", body)
+        resp = self.client.post("/value", content=json.dumps({"company_name": "X"}))
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.json())
 
     def test_post_unknown_methodology_returns_400(self) -> None:
         payload = {
@@ -137,21 +78,14 @@ class ServerIntegrationTests(unittest.TestCase):
             "inputs": {},
             "as_of_date": "2026-02-18",
         }
-        req = Request(
-            f"{self.base_url}/value",
-            data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with self.assertRaises(HTTPError) as ctx:
-            urlopen(req)
-        self.assertEqual(ctx.exception.code, 400)
+        resp = self.client.post("/value", content=json.dumps(payload))
+        self.assertEqual(resp.status_code, 400)
 
-    # ── Response contract ──
+    # -- Response contract --
 
     def test_response_content_type_is_json(self) -> None:
-        resp = urlopen(f"{self.base_url}/health")
-        self.assertEqual(resp.headers["Content-Type"], "application/json")
+        resp = self.client.get("/health")
+        self.assertIn("application/json", resp.headers["content-type"])
 
 
 if __name__ == "__main__":
