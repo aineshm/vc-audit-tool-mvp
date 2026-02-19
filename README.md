@@ -1,6 +1,6 @@
 # VC Audit Tool
 
-A Python CLI and FastAPI service that produces **auditable, deterministic valuation output** for venture-backed companies. Every result includes a full derivation trail — assumptions, citations with dataset versions, step-by-step math, and confidence indicators — so an auditor can independently reproduce the number.
+A Python CLI and FastAPI service that produces **auditable, deterministic valuation output** for venture-backed companies. Every result includes a full derivation trail - assumptions, citations with dataset versions, step-by-step math, and confidence indicators - so an auditor can independently reproduce the number.
 
 ## Approach & Methodology
 
@@ -137,6 +137,6 @@ PYTHONPATH=src python -m pytest tests/ -q
 ## Potential Improvements
 
 - **Live data adapters** — plug in Bloomberg/PitchBook behind the existing Protocol interfaces.
-- **DCF / weighted-blend methodology** — the engine router makes adding models a one-class change.
+- **DCF / other methodology** — the engine router makes adding models a one-class change.
 - **Time-series index interpolation** — currently uses previous-business-day fallback; linear interpolation would improve mid-month accuracy.
 - **Multi-currency support** — all amounts are currently USD; `MonetaryAmount` already carries a `currency` field.
