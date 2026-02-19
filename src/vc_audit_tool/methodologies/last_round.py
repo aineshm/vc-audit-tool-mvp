@@ -48,7 +48,7 @@ class LastRoundMarketAdjustedMethodology(ValuationMethodology):
             Citation(
                 label="Mock market index dataset",
                 detail=(
-                    "In-memory quarterly index levels for NASDAQ Composite and Russell 2000 "
+                    "In-memory monthly index levels for NASDAQ Composite and Russell 2000 "
                     "(vc_audit_tool.data_sources.MockMarketIndexSource)."
                 ),
                 dataset_version=MARKET_INDEX_DATASET_VERSION,
