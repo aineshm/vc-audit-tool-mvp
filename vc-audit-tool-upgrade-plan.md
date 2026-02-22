@@ -47,13 +47,13 @@ The existing `MockMarketIndexSource` returns hardcoded NASDAQ values. We need a 
 - `dataset_version` should be `"yfinance-nasdaq-{date_of_retrieval}"`
 
 **Acceptance criteria:**
-- [ ] `YFinanceMarketIndexSource` passes all existing `MarketIndexSource` Protocol type checks
-- [ ] Given a date range, returns closing prices for each trading day in that range
-- [ ] If a requested date falls on a weekend/holiday, returns the nearest prior trading day's value and notes the fallback in the citation
-- [ ] Cache file is written on first fetch; subsequent calls within the same session read from cache
-- [ ] `resolved_data_points` in the citation logs the exact ticker symbol, date, and closing value used (e.g. `"^IXIC@2024-03-15=16832.92"`)
-- [ ] Unit test: fetch NASDAQ values for a known historical date range and assert values are within expected range
-- [ ] `test_determinism.py` continues to pass (same input → same output when cache is warm)
+- [x] `YFinanceMarketIndexSource` passes all existing `MarketIndexSource` Protocol type checks
+- [x] Given a date range, returns closing prices for each trading day in that range
+- [x] If a requested date falls on a weekend/holiday, returns the nearest prior trading day's value and notes the fallback in the citation
+- [x] Cache file is written on first fetch; subsequent calls within the same session read from cache
+- [x] `resolved_data_points` in the citation logs the exact ticker symbol, date, and closing value used (e.g. `"^IXIC@2024-03-15=16832.92"`)
+- [x] Unit test: fetch NASDAQ values for a known historical date range and assert values are within expected range
+- [x] `test_determinism.py` continues to pass (same input → same output when cache is warm)
 
 ---
 
@@ -64,10 +64,10 @@ The existing `MockMarketIndexSource` returns hardcoded NASDAQ values. We need a 
 **So that** I know when the valuation may not reflect current market conditions.
 
 **Acceptance criteria:**
-- [ ] `confidence_indicators.index_data_freshness_gap_days` is populated with the number of days between the most recent index value used and today's date
-- [ ] If gap > 30 days, `staleness_risk` is set to `"HIGH"`
-- [ ] If gap is 7–30 days, `staleness_risk` is `"MEDIUM"`
-- [ ] If gap < 7 days, `staleness_risk` is `"LOW"`
+- [x] `confidence_indicators.index_data_freshness_gap_days` is populated with the number of days between the most recent index value used and today's date
+- [x] If gap > 30 days, `staleness_risk` is set to `"HIGH"`
+- [x] If gap is 7–30 days, `staleness_risk` is `"MEDIUM"`
+- [x] If gap < 7 days, `staleness_risk` is `"LOW"`
 
 ---
 
@@ -91,11 +91,11 @@ The existing mock returns hardcoded tickers. We need a real implementation that:
 - Target SIC codes to support: 7372 (software), 7374 (data processing), 6282 (investment advice), and others as needed
 
 **Acceptance criteria:**
-- [ ] `EdgarCompanyUniverse` class fetches and caches a list of companies for a given SIC code
-- [ ] Each company record includes: ticker, CIK, company name, SIC code, business description (extracted from Item 1 of 10-K)
-- [ ] Cache is written to `data/edgar_cache/{sic_code}.json` with a `retrieved_at` timestamp
-- [ ] If EDGAR is unreachable, raises `DataSourceError` with a clear message — does not return stale data silently
-- [ ] Unit test: fetch companies for SIC 7372 and assert at least 20 results with non-empty business descriptions
+- [x] `EdgarCompanyUniverse` class fetches and caches a list of companies for a given SIC code
+- [x] Each company record includes: ticker, CIK, company name, SIC code, business description (extracted from Item 1 of 10-K)
+- [x] Cache is written to `data/edgar_cache/{sic_code}.json` with a `retrieved_at` timestamp
+- [x] If EDGAR is unreachable, raises `DataSourceError` with a clear message — does not return stale data silently
+- [x] Unit test: fetch companies for SIC 7372 and assert at least 20 results with non-empty business descriptions
 
 ---
 
@@ -113,14 +113,14 @@ The existing mock returns hardcoded tickers. We need a real implementation that:
 - Pin the embedding model version in `dataset_version`
 
 **Acceptance criteria:**
-- [ ] `EmbeddingCompsRanker` takes a target description and list of candidate companies, returns ranked list with similarity scores
-- [ ] `dataset_version` includes the embedding model name and version (e.g. `"all-MiniLM-L6-v2-v1.0"`)
-- [ ] Each returned comp includes its similarity score, which maps to `confidence_indicators.peer_set_quality`:
+- [x] `EmbeddingCompsRanker` takes a target description and list of candidate companies, returns ranked list with similarity scores
+- [x] `dataset_version` includes the embedding model name and version (e.g. `"all-MiniLM-L6-v2-v1.0"`)
+- [x] Each returned comp includes its similarity score, which maps to `confidence_indicators.peer_set_quality`:
   - Mean similarity > 0.75 → `"HIGH"`
   - Mean similarity 0.5–0.75 → `"MEDIUM"`
   - Mean similarity < 0.5 → `"LOW"`
-- [ ] Unit test: rank a set of known companies against "enterprise AI software for business analytics" and assert that clearly relevant companies rank above clearly irrelevant ones
-- [ ] Embeddings are cached locally to avoid recomputing on repeated runs
+- [x] Unit test: rank a set of known companies against "enterprise AI software for business analytics" and assert that clearly relevant companies rank above clearly irrelevant ones
+- [x] Embeddings are cached locally to avoid recomputing on repeated runs
 
 ---
 
@@ -136,11 +136,11 @@ The existing mock returns hardcoded tickers. We need a real implementation that:
 - Handle missing data gracefully (some small-cap companies have incomplete financials)
 
 **Acceptance criteria:**
-- [ ] `YFinanceMetricsFetcher` returns EV, Revenue, and EV/Revenue for a given ticker
-- [ ] If EV or Revenue is unavailable for a ticker, that company is excluded from the comp set and a warning is added to `confidence_indicators`
-- [ ] `resolved_data_points` logs the exact values fetched: ticker, metric name, value, and retrieval date
-- [ ] Unit test: fetch metrics for `MSFT` and `GOOGL` and assert EV/Revenue > 0
-- [ ] Determinism: metrics are cached by ticker + date so repeated runs on the same day return identical values
+- [x] `YFinanceMetricsFetcher` returns EV, Revenue, and EV/Revenue for a given ticker
+- [x] If EV or Revenue is unavailable for a ticker, that company is excluded from the comp set and a warning is added to `confidence_indicators`
+- [x] `resolved_data_points` logs the exact values fetched: ticker, metric name, value, and retrieval date
+- [x] Unit test: fetch metrics for `MSFT` and `GOOGL` and assert EV/Revenue > 0
+- [x] Determinism: metrics are cached by ticker + date so repeated runs on the same day return identical values
 
 ---
 
@@ -151,10 +151,10 @@ The existing mock returns hardcoded tickers. We need a real implementation that:
 **So that** the Comparable Companies methodology can use it as a drop-in replacement for the mock source.
 
 **Acceptance criteria:**
-- [ ] `EdgarYFinanceComparableCompanySource` implements the `ComparableCompanySource` Protocol
-- [ ] `list_by_description(description, sector, k)` returns top-k comps ranked by embedding similarity with real financial metrics attached
-- [ ] All existing Comparable Companies methodology tests pass with the new source substituted in
-- [ ] Integration test: value a real public company against itself as a comp and assert the methodology produces a reasonable multiple
+- [x] `EdgarYFinanceComparableCompanySource` implements the `ComparableCompanySource` Protocol
+- [x] `list_by_description(description, sector, k)` returns top-k comps ranked by embedding similarity with real financial metrics attached
+- [x] All existing Comparable Companies methodology tests pass with the new source substituted in
+- [x] Integration test: value a real public company against itself as a comp and assert the methodology produces a reasonable multiple
 
 ---
 
@@ -178,11 +178,11 @@ Private companies don't have 10-K filings. We need an agentic layer that assembl
 - Note: Form D discloses amount raised but not post-money valuation — that must come from press or other sources
 
 **Acceptance criteria:**
-- [ ] `FormDSource` fetches Form D filings for a given company name from EDGAR
-- [ ] Returns list of `FundingRound` objects sorted by date descending
-- [ ] Each result includes the EDGAR filing URL as the citation source
-- [ ] If no Form D is found, returns empty list (not an error — many companies use exemptions)
-- [ ] Unit test: search for a known company (e.g. "Anthropic PBC") and assert at least one result
+- [x] `FormDSource` fetches Form D filings for a given company name from EDGAR
+- [x] Returns list of `FundingRound` objects sorted by date descending
+- [x] Each result includes the EDGAR filing URL as the citation source
+- [x] If no Form D is found, returns empty list (not an error — many companies use exemptions)
+- [x] Unit test: search for a known company (e.g. "Anthropic PBC") and assert at least one result
 
 ---
 
@@ -204,13 +204,13 @@ Private companies don't have 10-K filings. We need an agentic layer that assembl
 - The agent does NOT call the valuation engine — it only assembles inputs. The engine call happens outside the agent, using the existing API.
 
 **Acceptance criteria:**
-- [ ] Given `"Anthropic"` as input, the agent returns a structured `ValuationRequest` with: last round date, amount raised, post-money valuation (or best available estimate with uncertainty flag), sector
-- [ ] Every fact in the assembled request has a citation with source URL and retrieval timestamp
-- [ ] If a required field cannot be found, the agent returns a structured error listing which fields are missing — it does not hallucinate values
-- [ ] `web_research_node` uses temperature=0 and pins the model version; both are logged in the output
-- [ ] LangGraph state is fully inspectable — each node's input and output can be logged for debugging
-- [ ] Any LLM-extracted content is placed in a separate `research_metadata` key in the final output, never inside `valuation_result`
-- [ ] Integration test: run the agent for a well-documented company (e.g. Stripe, Anthropic) and assert the assembled request passes `ValuationRequest` schema validation
+- [x] Given `"Anthropic"` as input, the agent returns a structured `ValuationRequest` with: last round date, amount raised, post-money valuation (or best available estimate with uncertainty flag), sector
+- [x] Every fact in the assembled request has a citation with source URL and retrieval timestamp
+- [x] If a required field cannot be found, the agent returns a structured error listing which fields are missing — it does not hallucinate values
+- [x] `web_research_node` uses temperature=0 and pins the model version; both are logged in the output
+- [x] LangGraph state is fully inspectable — each node's input and output can be logged for debugging
+- [x] Any LLM-extracted content is placed in a separate `research_metadata` key in the final output, never inside `valuation_result`
+- [x] Integration test: run the agent for a well-documented company (e.g. Stripe, Anthropic) and assert the assembled request passes `ValuationRequest` schema validation
 
 ---
 
@@ -226,10 +226,10 @@ Private companies don't have 10-K filings. We need an agentic layer that assembl
 - This is supplementary data — its absence is not a blocking error
 
 **Acceptance criteria:**
-- [ ] `USASpendingSource` queries the public API by company name and returns total federal contract value
-- [ ] Result is included in the assembled company profile as `government_contracts_usd` with citation
-- [ ] If no contracts found, field is `null` with a note — not an error
-- [ ] Unit test: query a known federal contractor and assert a non-zero result
+- [x] `USASpendingSource` queries the public API by company name and returns total federal contract value
+- [x] Result is included in the assembled company profile as `government_contracts_usd` with citation
+- [x] If no contracts found, field is `null` with a note — not an error
+- [x] Unit test: query a known federal contractor and assert a non-zero result
 
 ---
 
@@ -270,12 +270,12 @@ Currently `/value` requires fully structured inputs. We need a new endpoint that
 ```
 
 **Acceptance criteria:**
-- [ ] `POST /research` accepts the request schema and returns the extended response schema
-- [ ] `valuation_result` is byte-identical on repeated calls with the same inputs and warm cache (determinism preserved)
-- [ ] `research_metadata` is clearly separated from `valuation_result`
-- [ ] If the research agent cannot assemble required inputs, returns a structured 422 with specific missing fields — not a 500
-- [ ] OpenAPI docs at `/docs` are auto-generated and accurate for the new endpoint
-- [ ] Integration test: call `/research` for a known company and assert the response passes schema validation
+- [x] `POST /research` accepts the request schema and returns the extended response schema
+- [x] `valuation_result` is byte-identical on repeated calls with the same inputs and warm cache (determinism preserved)
+- [x] `research_metadata` is clearly separated from `valuation_result`
+- [x] If the research agent cannot assemble required inputs, returns a structured 422 with specific missing fields — not a 500
+- [x] OpenAPI docs at `/docs` are auto-generated and accurate for the new endpoint
+- [x] Integration test: call `/research` for a known company and assert the response passes schema validation
 
 ---
 
@@ -290,9 +290,9 @@ Currently `/value` requires fully structured inputs. We need a new endpoint that
 **So that** I can force a fresh data fetch when caches are stale.
 
 **Acceptance criteria:**
-- [ ] `python -m vc_audit cache list` shows all cached datasets with their retrieval timestamps and size
-- [ ] `python -m vc_audit cache clear --older-than 30d` removes cache files older than the specified age
-- [ ] `python -m vc_audit cache clear --all` clears everything
+- [x] `python -m vc_audit cache list` shows all cached datasets with their retrieval timestamps and size
+- [x] `python -m vc_audit cache clear --older-than 30d` removes cache files older than the specified age
+- [x] `python -m vc_audit cache clear --all` clears everything
 
 ---
 
@@ -303,9 +303,9 @@ Currently `/value` requires fully structured inputs. We need a new endpoint that
 **So that** I can quickly assess how much manual review is needed.
 
 **Acceptance criteria:**
-- [ ] `python -m vc_audit confidence <request_id>` prints a human-readable summary of all `confidence_indicators` for a stored valuation run
-- [ ] Warnings are color-coded: HIGH risk in red, MEDIUM in yellow, LOW in green (when outputting to a terminal that supports color)
-- [ ] Output includes the specific data points that triggered each warning
+- [x] `python -m vc_audit confidence <request_id>` prints a human-readable summary of all `confidence_indicators` for a stored valuation run
+- [x] Warnings are color-coded: HIGH risk in red, MEDIUM in yellow, LOW in green (when outputting to a terminal that supports color)
+- [x] Output includes the specific data points that triggered each warning
 
 ---
 

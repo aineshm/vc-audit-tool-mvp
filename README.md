@@ -31,10 +31,18 @@ pip install -e ".[dev]"
 ### CLI (primary interface)
 
 ```bash
-# Mock data — works out of the box, no API calls
-python -m vc_audit_tool.cli --request-file examples/comps_request.json --pretty
-python -m vc_audit_tool.cli --request-file examples/last_round_request.json --pretty
-python -m vc_audit_tool.cli --request-file examples/techco_ratchet_request.json --pretty
+# Run a valuation from a JSON file
+python -m vc_audit_tool.cli value --request-file examples/comps_request.json --pretty
+python -m vc_audit_tool.cli value --request-file examples/last_round_request.json --pretty
+python -m vc_audit_tool.cli value --request-file examples/techco_ratchet_request.json --pretty
+
+# Cache management (Epic 5)
+python -m vc_audit_tool.cli cache list                     # show all cached datasets
+python -m vc_audit_tool.cli cache clear --older-than 30d   # remove stale cache files
+python -m vc_audit_tool.cli cache clear --all              # wipe everything
+
+# Confidence report for a stored run (Epic 5)
+python -m vc_audit_tool.cli confidence <request-id>
 ```
 
 ### FastAPI Server
@@ -111,7 +119,7 @@ The `target_description` is the key input for finding relevant comps. You can:
 ## Running Tests
 
 ```bash
-# Unit tests only (default, no network needed) — ~297 tests
+# Unit tests only (default, no network needed) — ~335 tests
 python -m pytest tests/ -q
 
 # Include integration tests (hits SEC EDGAR + Yahoo Finance APIs)
@@ -131,16 +139,16 @@ All four must pass before committing:
 ```bash
 ruff check src/ tests/               # linter (pyflakes, isort, bugbear, etc.)
 ruff format --check src/ tests/      # formatter
-mypy src/                            # strict type checking (25 source files)
-python -m pytest tests/ -q           # 297 unit tests
+mypy src/                            # strict type checking (27 source files)
+python -m pytest tests/ -q           # 335 unit tests
 ```
 
 Current status:
 ```
 ruff check:   ✅ All checks passed
-ruff format:  ✅ 39 files already formatted
-mypy:         ✅ Success: no issues found in 25 source files
-pytest:       ✅ 297 passed, 11 deselected (integration)
+ruff format:  ✅ 42 files already formatted
+mypy:         ✅ Success: no issues found in 27 source files
+pytest:       ✅ 335 passed, 11 deselected (integration)
 ```
 
 ---
@@ -350,6 +358,7 @@ This methodology is ideal for scenarios where sector multiples have contracted (
 | **Epic 2** | Real Comparable Companies — EDGAR universe + yfinance metrics + embedding ranker | ✅ Complete |
 | **Epic 3** | Private Company Data Agent — LangGraph research agent, Form D, USASpending, DuckDuckGo + multi-provider LLM extraction | ✅ Complete |
 | **Epic 4** | `POST /research` endpoint — one-call company valuation from just a name | ✅ Complete |
+| **Epic 5** | Observability — `vc-audit cache list/clear` CLI + `vc-audit confidence <id>` report | ✅ Complete |
 
 ### Automated Research Agent (`POST /research`)
 
@@ -423,9 +432,9 @@ The system will then automatically:
 
 | Epic | Feature | Description |
 |------|---------|-------------|
-| **Epic 5** | Auto-description | Scrape company website or use LLM to generate `target_description` automatically |
-| **Epic 6** | Additional methodologies | DCF, weighted average of methods, multi-currency support |
-| **Epic 7** | CLI `--live` flag | Wire live providers into CLI flags for command-line valuations |
+| **Epic 6** | Auto-description | Scrape company website or use LLM to generate `target_description` automatically |
+| **Epic 7** | Additional methodologies | DCF, weighted average of methods, multi-currency support |
+| **Epic 8** | CLI `--live` flag | Wire live providers into CLI flags for command-line valuations |
 
 ---
 

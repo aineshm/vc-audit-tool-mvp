@@ -79,7 +79,7 @@ The engine is **data-source agnostic**. It accepts any object satisfying the `Pr
 ```
 src/vc_audit_tool/
 ├── __init__.py                    # Package version
-├── cli.py                         # CLI entry point (argparse)
+├── cli.py                         # CLI entry point — value, cache, confidence subcommands
 ├── server.py                      # FastAPI server + Web UI + SQLite persistence
 ├── engine.py                      # ValuationEngine — routes requests to methodologies
 ├── models.py                      # ValuationRequest, ValuationResult, Citation, MonetaryAmount
@@ -87,6 +87,8 @@ src/vc_audit_tool/
 ├── validation.py                  # Input parsing & validation helpers
 ├── exceptions.py                  # ValidationError, DataSourceError
 ├── store.py                       # SQLite-backed ValuationStore (run history)
+├── cache.py                       # Epic 5.1: Cache list/clear utilities
+├── confidence.py                  # Epic 5.2: Confidence-indicator report formatter
 │
 ├── data_sources/
 │   ├── __init__.py                # Re-exports + lazy imports for heavy modules
@@ -121,6 +123,7 @@ tests/
 ├── test_epic2.py                  # 43 tests — EDGAR, metrics, embeddings, composite source
 ├── test_multiple_ratchet.py       # 39 tests — Multiple-Ratchet methodology
 ├── test_epic3.py                  # 77 tests — FormD, USASpending, agent nodes, /research
+├── test_epic5.py                  # 38 tests — cache list/clear, confidence reports, CLI subcommands
 │
 examples/
 ├── comps_request.json             # Sample Comparable Companies request
@@ -128,7 +131,7 @@ examples/
 └── techco_ratchet_request.json    # Sample Multiple-Ratchet request (TechCo scenario)
 ```
 
-**25 source files, ~3,500 lines of production code, 297 total tests.**
+**27 source files, ~3,800 lines of production code, 335 total tests.**
 
 ---
 
@@ -534,12 +537,13 @@ The output envelope separates deterministic from non-deterministic content:
 ### Test Pyramid
 
 ```
-297 total tests
-├── 280 unit tests (run offline, <2 seconds)
+335 total tests
+├── 318 unit tests (run offline, <2 seconds)
 │   ├── test_engine.py    — 138 tests (engine, methodologies, server, CLI, validation)
 │   ├── test_yfinance.py  — Epic 1 offline tests
 │   ├── test_epic2.py     — 43 tests (EDGAR, metrics, embeddings, composite)
-│   └── test_epic3.py     — 77 tests (Form D, USASpending, agent pipeline, /research)
+│   ├── test_epic3.py     — 77 tests (Form D, USASpending, agent pipeline, /research)
+│   └── test_epic5.py     — 38 tests (cache management, confidence reports, CLI subcommands)
 │
 └── 17 integration tests (marked @pytest.mark.integration, require network)
     ├── test_yfinance.py  — live Yahoo Finance index tests

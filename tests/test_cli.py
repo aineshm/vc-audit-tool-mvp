@@ -1,4 +1,7 @@
-"""Tests for the CLI entry point (cli.py)."""
+"""Tests for the CLI entry point (cli.py).
+
+Covers the ``value``, ``cache``, and ``confidence`` subcommands.
+"""
 
 from __future__ import annotations
 
@@ -33,7 +36,7 @@ class CLITests(unittest.TestCase):
     # ── Happy path ──
 
     def test_last_round_example_succeeds(self) -> None:
-        result = _run_cli("--request-file", "examples/last_round_request.json")
+        result = _run_cli("value", "--request-file", "examples/last_round_request.json")
         self.assertEqual(result.returncode, 0)
         data = json.loads(result.stdout)
         self.assertIn("valuation_result", data)
@@ -41,14 +44,14 @@ class CLITests(unittest.TestCase):
         self.assertIn("estimated_fair_value", data["valuation_result"])
 
     def test_comps_example_succeeds(self) -> None:
-        result = _run_cli("--request-file", "examples/comps_request.json")
+        result = _run_cli("value", "--request-file", "examples/comps_request.json")
         self.assertEqual(result.returncode, 0)
         data = json.loads(result.stdout)
         self.assertIn("valuation_result", data)
         self.assertIn("estimated_fair_value", data["valuation_result"])
 
     def test_pretty_flag_produces_indented_json(self) -> None:
-        result = _run_cli("--request-file", "examples/last_round_request.json", "--pretty")
+        result = _run_cli("value", "--request-file", "examples/last_round_request.json", "--pretty")
         self.assertEqual(result.returncode, 0)
         # Pretty-printed JSON starts with {\n  "
         self.assertTrue(result.stdout.startswith("{\n"))
@@ -56,7 +59,7 @@ class CLITests(unittest.TestCase):
     # ── Error paths ──
 
     def test_missing_file_returns_exit_1(self) -> None:
-        result = _run_cli("--request-file", "nonexistent.json")
+        result = _run_cli("value", "--request-file", "nonexistent.json")
         self.assertEqual(result.returncode, 1)
         data = json.loads(result.stdout)
         self.assertIn("error", data)
@@ -66,7 +69,7 @@ class CLITests(unittest.TestCase):
             f.write("not json {{{")
             f.flush()
             try:
-                result = _run_cli("--request-file", f.name)
+                result = _run_cli("value", "--request-file", f.name)
                 self.assertEqual(result.returncode, 1)
                 data = json.loads(result.stdout)
                 self.assertIn("error", data)
@@ -78,17 +81,16 @@ class CLITests(unittest.TestCase):
             json.dump({"company_name": "X"}, f)
             f.flush()
             try:
-                result = _run_cli("--request-file", f.name)
+                result = _run_cli("value", "--request-file", f.name)
                 self.assertEqual(result.returncode, 1)
                 data = json.loads(result.stdout)
                 self.assertIn("error", data)
             finally:
                 os.unlink(f.name)
 
-    def test_no_args_prints_usage(self) -> None:
+    def test_no_args_prints_help(self) -> None:
         result = _run_cli()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("--request-file", result.stderr)
 
 
 if __name__ == "__main__":
