@@ -5,7 +5,6 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from vc_audit_tool.data_sources import MARKET_INDEX_DATASET_VERSION
 from vc_audit_tool.models import Citation, MonetaryAmount, ValuationRequest, ValuationResult
 from vc_audit_tool.validation import parse_date, parse_decimal, require_field
 
@@ -24,11 +23,18 @@ class LastRoundMarketAdjustedMethodology(ValuationMethodology):
         last_round_date = parse_date(require_field(inputs, "last_round_date", str))
         public_index = inputs.get("public_index", "NASDAQ_COMPOSITE")
 
-        last_round_level = context.index_source.get_level(public_index, last_round_date)
-        as_of_level = context.index_source.get_level(public_index, request.as_of_date)
+        src = context.index_source
+        last_round_level = src.get_level(public_index, last_round_date)
+        as_of_level = src.get_level(public_index, request.as_of_date)
         pct_change = (as_of_level.level / last_round_level.level) - Decimal("1")
         multiplier = Decimal("1") + pct_change
         adjusted_value = (last_post_money * multiplier).quantize(Decimal("0.01"))
+
+        # Read citation metadata from the data source itself (every
+        # conforming source exposes ``source_label`` and ``dataset_version``).
+        ds_label: str = getattr(src, "source_label", "Market index dataset")
+        ds_version: str = getattr(src, "dataset_version", "")
+        data_source_type: str = "live" if "yfinance" in ds_version else "mock"
 
         assumptions = [
             f"Method assumes valuation moves proportionally with {public_index}.",
@@ -46,12 +52,12 @@ class LastRoundMarketAdjustedMethodology(ValuationMethodology):
         ]
         citations = [
             Citation(
-                label="Mock market index dataset",
+                label=ds_label,
                 detail=(
-                    "In-memory monthly index levels for NASDAQ Composite and Russell 2000 "
-                    "(vc_audit_tool.data_sources.MockMarketIndexSource)."
+                    f"Index closing levels for {public_index} "
+                    f"(source: {ds_label}, version: {ds_version})."
                 ),
-                dataset_version=MARKET_INDEX_DATASET_VERSION,
+                dataset_version=ds_version,
                 resolved_data_points=(
                     f"{public_index}@{last_round_level.as_of_date.isoformat()}"
                     f"={last_round_level.level}",
@@ -77,7 +83,7 @@ class LastRoundMarketAdjustedMethodology(ValuationMethodology):
             "index_data_freshness_gap_days": index_data_gap_days,
             "absolute_index_change_pct": round(abs_pct, 4),
             "staleness_risk": staleness_risk,
-            "data_source_type": "mock",
+            "data_source_type": data_source_type,
         }
 
         return ValuationResult(

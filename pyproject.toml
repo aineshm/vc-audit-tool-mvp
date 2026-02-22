@@ -11,6 +11,7 @@ requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
+    "yfinance>=0.2.31",
 ]
 
 [project.scripts]
@@ -60,6 +61,14 @@ known-first-party = ["vc_audit_tool"]
 # server.py embeds a raw HTML/CSS/JS template string — CSS lines exceed 100 chars.
 "src/vc_audit_tool/server.py" = ["E501"]
 
+# ── Pytest ──
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests that hit real external APIs (skipped in CI)",
+]
+# Default: run everything *except* integration tests
+addopts = "-m 'not integration'"
+
 # ── Mypy (strict type checking) ──
 [tool.mypy]
 python_version = "3.10"
@@ -72,4 +81,8 @@ packages = ["vc_audit_tool"]
 
 [[tool.mypy.overrides]]
 module = ["uvicorn", "uvicorn.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["yfinance", "yfinance.*"]
 ignore_missing_imports = true

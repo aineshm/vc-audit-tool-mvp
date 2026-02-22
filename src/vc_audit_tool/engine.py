@@ -6,6 +6,7 @@ from typing import Any
 
 from vc_audit_tool.data_sources import MockComparableCompanySource, MockMarketIndexSource
 from vc_audit_tool.exceptions import ValidationError
+from vc_audit_tool.interfaces import ComparableCompanySource, MarketIndexSource
 from vc_audit_tool.methodologies.base import MethodologyContext, ValuationMethodology
 from vc_audit_tool.methodologies.comps import ComparableCompaniesMethodology
 from vc_audit_tool.methodologies.last_round import LastRoundMarketAdjustedMethodology
@@ -13,10 +14,15 @@ from vc_audit_tool.models import ValuationRequest, ValuationResult
 
 
 class ValuationEngine:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        index_source: MarketIndexSource | None = None,
+        comps_source: ComparableCompanySource | None = None,
+    ) -> None:
         self.context = MethodologyContext(
-            index_source=MockMarketIndexSource(),
-            comps_source=MockComparableCompanySource(),
+            index_source=index_source or MockMarketIndexSource(),
+            comps_source=comps_source or MockComparableCompanySource(),
         )
         self._methodologies: dict[str, ValuationMethodology] = {
             LastRoundMarketAdjustedMethodology.name: LastRoundMarketAdjustedMethodology(),

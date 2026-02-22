@@ -5,7 +5,6 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from vc_audit_tool.data_sources import COMPS_DATASET_VERSION
 from vc_audit_tool.exceptions import ValidationError
 from vc_audit_tool.models import Citation, MonetaryAmount, ValuationRequest, ValuationResult
 from vc_audit_tool.validation import parse_decimal, require_field
@@ -32,20 +31,26 @@ class ComparableCompaniesMethodology(ValuationMethodology):
         if private_discount_pct > Decimal("100"):
             raise ValidationError("Field 'private_company_discount_pct' cannot exceed 100.")
 
+        src = context.comps_source
         tickers = inputs.get("peer_tickers")
         if tickers:
             if not isinstance(tickers, list):
                 raise ValidationError("Field 'peer_tickers' must be a list of ticker symbols.")
-            comps = context.comps_source.list_by_tickers(tickers)
+            comps = src.list_by_tickers(tickers)
             peer_group_descriptor = f"explicit peer list ({', '.join([c.ticker for c in comps])})"
         else:
-            comps = context.comps_source.list_by_sector(sector)
+            comps = src.list_by_sector(sector)
             peer_group_descriptor = f"sector peer set '{sector}'"
 
-        selected_multiple = context.comps_source.aggregate_multiple(comps, statistic)
+        selected_multiple = src.aggregate_multiple(comps, statistic)
         gross_value = revenue * selected_multiple
         discount_multiplier = (Decimal("100") - private_discount_pct) / Decimal("100")
         adjusted_value = (gross_value * discount_multiplier).quantize(Decimal("0.01"))
+
+        # Read citation metadata from the data source itself
+        ds_label: str = getattr(src, "source_label", "Comparable company dataset")
+        ds_version: str = getattr(src, "dataset_version", "")
+        data_source_type: str = "mock" if "mock" in ds_version else "live"
 
         assumptions = [
             f"Comparable universe based on {peer_group_descriptor}.",
@@ -63,12 +68,12 @@ class ComparableCompaniesMethodology(ValuationMethodology):
         ]
         citations = [
             Citation(
-                label="Mock public comp dataset",
+                label=ds_label,
                 detail=(
-                    "In-memory EV/Revenue multiples by ticker and sector "
-                    "(vc_audit_tool.data_sources.MockComparableCompanySource)."
+                    f"EV/Revenue multiples by ticker and sector "
+                    f"(source: {ds_label}, version: {ds_version})."
                 ),
-                dataset_version=COMPS_DATASET_VERSION,
+                dataset_version=ds_version,
                 resolved_data_points=tuple(f"{c.ticker}:ev_rev={c.ev_to_revenue}" for c in comps),
             )
         ]
@@ -89,7 +94,7 @@ class ComparableCompaniesMethodology(ValuationMethodology):
             "peer_count": peer_count,
             "multiple_spread": round(spread, 2),
             "peer_set_quality": peer_set_quality,
-            "data_source_type": "mock",
+            "data_source_type": data_source_type,
         }
 
         return ValuationResult(

@@ -34,6 +34,9 @@ class ComparableCompany:
 class MockMarketIndexSource:
     """Simple in-memory index history with previous-business-day fallback."""
 
+    dataset_version: str = MARKET_INDEX_DATASET_VERSION
+    source_label: str = "Mock market index dataset"
+
     _INDEX_LEVELS: dict[str, dict[str, Decimal]] = {
         "NASDAQ_COMPOSITE": {
             # Monthly data — more realistic for market-adjustment calculations.
@@ -113,6 +116,9 @@ class MockMarketIndexSource:
 
 class MockComparableCompanySource:
     """In-memory public comps with sector-based filtering."""
+
+    dataset_version: str = COMPS_DATASET_VERSION
+    source_label: str = "Mock public comp dataset"
 
     _COMPS: tuple[ComparableCompany, ...] = (
         # enterprise_software — 7 peers → triggers peer_set_quality "HIGH"
