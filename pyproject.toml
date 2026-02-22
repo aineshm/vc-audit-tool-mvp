@@ -12,6 +12,8 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "yfinance>=0.2.31",
+    "httpx>=0.27",
+    "sentence-transformers>=2.2",
 ]
 
 [project.scripts]
@@ -85,4 +87,16 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["yfinance", "yfinance.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["sentence_transformers", "sentence_transformers.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["httpx", "httpx.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
 ignore_missing_imports = true
