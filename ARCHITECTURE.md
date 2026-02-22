@@ -34,18 +34,18 @@ Detailed design documentation for the VC Audit Tool valuation engine.
                     │ ValuationEngine │  (engine.py)
                     └────────┬────────┘
                              │  routes to methodology
-                    ┌────────┴────────┐
-              ┌─────▼──────┐   ┌──────▼──────┐
-              │ Last-Round  │   │    Comps     │  (methodologies/)
-              │ Market-Adj  │   │  Companies   │
-              └─────┬───────┘   └──────┬───────┘
-                    │                  │
-         ┌──────────▼──┐        ┌──────▼──────────────────┐
-         │ IndexSource │        │ ComparableCompanySource  │  (interfaces.py)
-         │  Protocol   │        │       Protocol           │
-         └──────┬──────┘        └──────┬──────────────────┘
-                │                      │
-       ┌────────┴────────┐    ┌────────┴────────────────┐
+              ┌──────────────┼──────────────┐
+        ┌─────▼──────┐ ┌────▼─────┐  ┌─────▼───────┐
+        │ Last-Round  │ │  Comps   │  │  Multiple   │  (methodologies/)
+        │ Market-Adj  │ │Companies │  │  Ratchet    │
+        └─────┬───────┘ └────┬─────┘  └──────┬──────┘
+              │              │               │
+         ┌────▼────────┐  ┌──▼────────────────▼──────┐
+         │ IndexSource │  │ ComparableCompanySource   │  (interfaces.py)
+         │  Protocol   │  │       Protocol            │
+         └──────┬──────┘  └──────┬───────────────────┘
+                │                │
+       ┌────────┴────────┐    ┌──┴──────────────────────┐
        │  Mock   │ Live  │    │  Mock  │  EDGAR+YFin    │  (data_sources/)
        │  Index  │ YFin  │    │  Comps │  +Embeddings   │
        └─────────┴───────┘    └────────┴────────────────┘
@@ -82,16 +82,19 @@ src/vc_audit_tool/
 │   ├── __init__.py
 │   ├── base.py                    # MethodologyContext, ValuationMethodology ABC
 │   ├── comps.py                   # Comparable Companies methodology
-│   └── last_round.py             # Last-Round Market-Adjusted methodology
+│   ├── last_round.py             # Last-Round Market-Adjusted methodology
+│   └── multiple_ratchet.py       # Last-Round Multiple-Ratchet methodology
 │
 tests/
 ├── test_engine.py                 # 138 tests — engine, methodologies, server, CLI, validation
 ├── test_yfinance.py               # Epic 1 tests — YFinanceMarketIndexSource
 ├── test_epic2.py                  # 43 tests — EDGAR, metrics, embeddings, composite source
+├── test_multiple_ratchet.py       # 39 tests — Multiple-Ratchet methodology
 │
 examples/
 ├── comps_request.json             # Sample Comparable Companies request
-└── last_round_request.json        # Sample Last-Round request
+├── last_round_request.json        # Sample Last-Round request
+└── techco_ratchet_request.json    # Sample Multiple-Ratchet request (TechCo scenario)
 ```
 
 **20 source files, ~2,300 lines of production code, 192 total tests.**
@@ -226,6 +229,51 @@ User Request
 │  fair_value = 100M × 1.2083         │
 │            = $120,831,065.39        │
 └─────────────────────────────────────┘
+```
+
+### Last-Round Multiple-Ratchet — Pipeline
+
+```
+User Request
+    │
+    ├── last_post_money_valuation: 100,000,000
+    ├── revenue_at_last_round: 10,000,000
+    ├── current_revenue: 12,000,000
+    ├── sector: "enterprise_software"
+    └── private_company_discount_pct: 20
+         │
+         ▼
+┌────────────────────────────────────────┐
+│ Step 1: Implied Multiple at Last Round │
+│  100M / 10M = 10.0×                   │
+└────────────┬───────────────────────────┘
+             │
+             ▼
+┌────────────────────────────────────────┐
+│ ComparableCompanySource                │
+│  list_by_sector("enterprise_software") │
+│  aggregate_multiple(comps, "median")   │
+│  → 11.80× (mock) or e.g. 7.0× (live) │
+└────────────┬───────────────────────────┘
+             │
+             ▼
+┌────────────────────────────────────────┐
+│ Step 3: Multiple Ratchet               │
+│  11.8 / 10.0 = 1.18 (expansion)       │
+│  OR: 7.0 / 10.0 = 0.70 (compression) │
+├────────────────────────────────────────┤
+│ Step 5: Re-rated Value                 │
+│  12M × 11.8 = 141.6M (mock)           │
+│  OR: 12M × 7.0 = 84.0M (live)        │
+├────────────────────────────────────────┤
+│ Step 7: Apply Discount                 │
+│  141.6M × 0.80 = $113,280,000 (mock)  │
+│  OR: 84.0M × 0.80 = $67,200,000 (live)│
+└────────────────────────────────────────┘
+
+Key insight: unlike Last-Round Market-Adjusted (which tracks
+a broad index), this method captures sector-specific multiple
+compression and company-specific revenue performance.
 ```
 
 ---

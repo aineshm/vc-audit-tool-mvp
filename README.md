@@ -34,6 +34,7 @@ pip install -e ".[dev]"
 # Mock data — works out of the box, no API calls
 python -m vc_audit_tool.cli --request-file examples/comps_request.json --pretty
 python -m vc_audit_tool.cli --request-file examples/last_round_request.json --pretty
+python -m vc_audit_tool.cli --request-file examples/techco_ratchet_request.json --pretty
 ```
 
 ### FastAPI Server
@@ -105,7 +106,7 @@ The `target_description` is the key input for finding relevant comps. You can:
 ## Running Tests
 
 ```bash
-# Unit tests only (default, no network needed) — ~181 tests
+# Unit tests only (default, no network needed) — ~220 tests
 python -m pytest tests/ -q
 
 # Include integration tests (hits SEC EDGAR + Yahoo Finance APIs)
@@ -125,16 +126,16 @@ All four must pass before committing:
 ```bash
 ruff check src/ tests/               # linter (pyflakes, isort, bugbear, etc.)
 ruff format --check src/ tests/      # formatter
-mypy src/                            # strict type checking (20 source files)
-python -m pytest tests/ -q           # 181 unit tests
+mypy src/                            # strict type checking (21 source files)
+python -m pytest tests/ -q           # 220 unit tests
 ```
 
 Current status:
 ```
 ruff check:   ✅ All checks passed
-ruff format:  ✅ 32 files already formatted
-mypy:         ✅ Success: no issues found in 20 source files
-pytest:       ✅ 181 passed, 11 deselected (integration)
+ruff format:  ✅ 34 files already formatted
+mypy:         ✅ Success: no issues found in 21 source files
+pytest:       ✅ 220 passed, 11 deselected (integration)
 ```
 
 ---
@@ -185,6 +186,35 @@ Scales the most recent post-money valuation by public-market index movement.
   }
 }
 ```
+
+### 3. Last-Round Multiple-Ratchet (`last_round_multiple_ratchet`)
+
+Re-rates a prior-round valuation by comparing the **implied revenue multiple** at the time of the last round against the **current market multiple** for the same sector. Unlike the market-adjusted method (which tracks a broad index), this captures **sector-specific multiple compression or expansion** and **company-specific revenue performance**.
+
+```json
+{
+  "company_name": "TechCo",
+  "methodology": "last_round_multiple_ratchet",
+  "as_of_date": "2026-02-22",
+  "inputs": {
+    "last_post_money_valuation": 100000000,
+    "revenue_at_last_round": 10000000,
+    "current_revenue": 12000000,
+    "sector": "enterprise_software",
+    "statistic": "median",
+    "private_company_discount_pct": 20
+  }
+}
+```
+
+**Derivation:**
+1. Implied multiple = last post-money ÷ revenue at last round = 10.0×
+2. Current market median from peer set (e.g. 7.0×)
+3. Multiple ratchet = current ÷ implied = 0.70 (30% compression)
+4. Re-rated value = current revenue × current market multiple = $12M × 7.0 = $84M
+5. Apply private-company discount: $84M × 0.80 = **$67.2M**
+
+This methodology is ideal for scenarios where sector multiples have contracted (or expanded) significantly since the last funding round.
 
 ---
 
@@ -257,6 +287,51 @@ Scales the most recent post-money valuation by public-market index movement.
 ```
 </details>
 
+<details>
+<summary>Last-Round Multiple-Ratchet (mock data — TechCo scenario)</summary>
+
+```json
+{
+  "valuation_result": {
+    "company_name": "TechCo",
+    "methodology": "last_round_multiple_ratchet",
+    "as_of_date": "2026-02-22",
+    "estimated_fair_value": { "amount": 113280000.0, "currency": "USD" },
+    "assumptions": [
+      "Last-round implied revenue multiple: 10.00x (100,000,000 / 10,000,000).",
+      "Current median market multiple from sector peer set 'enterprise_software': 11.80x.",
+      "Multiple ratchet (current / implied): 1.1800 (expansion: -18.0%).",
+      "Company revenue grew 20.0% (10,000,000 → 12,000,000).",
+      "Applied private-company discount of 20.00%."
+    ],
+    "derivation_steps": [
+      "Step 1: Implied multiple at last round = 100,000,000.00 / 10,000,000.00 = 10.00x.",
+      "Step 2: Current market median EV/Revenue multiple = 11.80x.",
+      "Step 3: Multiple ratchet = 11.80 / 10.00 = 1.1800 (↑ 18.0%).",
+      "Step 4: Revenue performance = 12,000,000.00 (+20.0% vs last round).",
+      "Step 5: Re-rated value = current revenue × market multiple = 12,000,000.00 × 11.80 = 141,600,000.00 USD.",
+      "Step 6: Discount multiplier = (100 - 20.00) / 100 = 0.8000.",
+      "Step 7: Final value = 141,600,000.00 × 0.8000 = 113,280,000.00 USD."
+    ],
+    "confidence_indicators": {
+      "peer_count": 7,
+      "multiple_spread": 5.6,
+      "peer_set_quality": "HIGH – 5+ comparable companies",
+      "implied_multiple_at_last_round": 10.0,
+      "current_market_multiple": 11.8,
+      "multiple_ratchet": 1.18,
+      "ratchet_severity": "EXPANSION – multiples increased",
+      "revenue_growth_pct": 20.0,
+      "data_source_type": "mock"
+    }
+  }
+}
+```
+
+> **Note:** With mock data the enterprise_software median is 11.8×, so this shows _expansion_. With live data where sector multiples have dropped (e.g. to 7×), the same methodology would produce $12M × 7 × 0.80 = **$67.2M** — the Investopedia down-round scenario.
+
+</details>
+
 ---
 
 ## Project Status
@@ -265,9 +340,10 @@ Scales the most recent post-money valuation by public-market index movement.
 
 | Epic | Feature | Status |
 |------|---------|--------|
-| **MVP** | Valuation engine, 2 methodologies, CLI, FastAPI server, Web UI, SQLite persistence | ✅ Complete |
+| **MVP** | Valuation engine, 3 methodologies, CLI, FastAPI server, Web UI, SQLite persistence | ✅ Complete |
 | **Epic 1** | `YFinanceMarketIndexSource` — live NASDAQ/Russell 2000 levels via Yahoo Finance | ✅ Complete |
 | **Epic 2** | Real Comparable Companies — EDGAR universe + yfinance metrics + embedding ranker | ✅ Complete |
+| **Epic 3** | Multiple-Ratchet methodology — sector multiple compression / expansion + revenue performance | ✅ Complete |
 
 ### Can It Value Real Companies Today?
 
@@ -287,9 +363,9 @@ The system will then automatically:
 
 | Epic | Feature | Description |
 |------|---------|-------------|
-| **Epic 3** | CLI + Server integration | Wire live providers into CLI flags (`--live`) and server config |
-| **Epic 4** | Auto-description | Scrape company website or use LLM to generate `target_description` automatically |
-| **Epic 5** | Additional methodologies | DCF, weighted average of methods, multi-currency support |
+| **Epic 4** | CLI + Server integration | Wire live providers into CLI flags (`--live`) and server config |
+| **Epic 5** | Auto-description | Scrape company website or use LLM to generate `target_description` automatically |
+| **Epic 6** | Additional methodologies | DCF, weighted average of methods, multi-currency support |
 
 ---
 

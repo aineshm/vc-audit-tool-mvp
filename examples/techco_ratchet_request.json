@@ -1,0 +1,13 @@
+{
+  "company_name": "TechCo",
+  "methodology": "last_round_multiple_ratchet",
+  "as_of_date": "2026-02-22",
+  "inputs": {
+    "last_post_money_valuation": 100000000,
+    "revenue_at_last_round": 10000000,
+    "current_revenue": 12000000,
+    "sector": "enterprise_software",
+    "statistic": "median",
+    "private_company_discount_pct": 20
+  }
+}
