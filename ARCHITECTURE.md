@@ -16,38 +16,57 @@ Detailed design documentation for the VC Audit Tool valuation engine.
 8. [Caching Strategy](#caching-strategy)
 9. [Semantic Comp Selection](#semantic-comp-selection)
 10. [Audit Trail Design](#audit-trail-design)
-11. [Testing Architecture](#testing-architecture)
-12. [Dependency Map](#dependency-map)
-13. [Extension Points](#extension-points)
+11. [Research Agent (Epic 3)](#research-agent-epic-3)
+12. [Testing Architecture](#testing-architecture)
+13. [Dependency Map](#dependency-map)
+14. [Extension Points](#extension-points)
 
 ---
 
 ## System Overview
 
 ```
-                      ┌──────────────┐
-                      │   CLI / API  │  (cli.py, server.py)
-                      └──────┬───────┘
-                             │  JSON request
-                             ▼
-                    ┌─────────────────┐
-                    │ ValuationEngine │  (engine.py)
-                    └────────┬────────┘
-                             │  routes to methodology
-              ┌──────────────┼──────────────┐
-        ┌─────▼──────┐ ┌────▼─────┐  ┌─────▼───────┐
-        │ Last-Round  │ │  Comps   │  │  Multiple   │  (methodologies/)
-        │ Market-Adj  │ │Companies │  │  Ratchet    │
-        └─────┬───────┘ └────┬─────┘  └──────┬──────┘
-              │              │               │
-         ┌────▼────────┐  ┌──▼────────────────▼──────┐
-         │ IndexSource │  │ ComparableCompanySource   │  (interfaces.py)
-         │  Protocol   │  │       Protocol            │
-         └──────┬──────┘  └──────┬───────────────────┘
-                │                │
-       ┌────────┴────────┐    ┌──┴──────────────────────┐
-       │  Mock   │ Live  │    │  Mock  │  EDGAR+YFin    │  (data_sources/)
-       │  Index  │ YFin  │    │  Comps │  +Embeddings   │
+                  ┌──────────────────────┐
+                  │    CLI / API         │  (cli.py, server.py)
+                  │  POST /value         │  ← structured inputs
+                  │  POST /research      │  ← company name only
+                  └──────┬──────┬────────┘
+                         │      │
+          ┌──────────────┘      └──────────────┐
+          │ /value                             │ /research
+          ▼                                    ▼
+┌─────────────────┐              ┌─────────────────────────┐
+│ ValuationEngine │              │ CompanyResearchAgent     │
+└────────┬────────┘              │  (LangGraph StateGraph)  │
+         │                       │                         │
+         │  routes to            │  ┌─ parse_company       │
+         │  methodology          │  ├─ form_d (SEC EDGAR)  │
+         │                       │  ├─ web_research (DDG   │
+         │                       │  │   + LLM extraction)  │
+         │                       │  ├─ contracts (USASpend) │
+         │                       │  └─ assemble            │
+         │                       └──────────┬──────────────┘
+         │                                  │ assembled inputs
+         │                                  ▼
+         │                       ┌─────────────────┐
+         │                       │ ValuationEngine │
+         │                       └────────┬────────┘
+         │                                │
+  ┌──────┼──────────────┬─────────────────┘
+  │      │              │
+┌─▼──────▼──┐ ┌────▼─────┐  ┌──────▼──────┐
+│ Last-Round │ │  Comps   │  │  Multiple   │  (methodologies/)
+│ Market-Adj │ │Companies │  │  Ratchet    │
+└─────┬──────┘ └────┬─────┘  └──────┬──────┘
+      │              │               │
+ ┌────▼────────┐  ┌──▼────────────────▼──────┐
+ │ IndexSource │  │ ComparableCompanySource   │  (interfaces.py)
+ │  Protocol   │  │       Protocol            │
+ └──────┬──────┘  └──────┬───────────────────┘
+        │                │
+┌───────┴────────┐    ┌──┴──────────────────────┐
+│  Mock   │ Live │    │  Mock  │  EDGAR+YFin    │  (data_sources/)
+│  Index  │ YFin │    │  Comps │  +Embeddings   │
        └─────────┴───────┘    └────────┴────────────────┘
 ```
 
@@ -85,11 +104,23 @@ src/vc_audit_tool/
 │   ├── last_round.py             # Last-Round Market-Adjusted methodology
 │   └── multiple_ratchet.py       # Last-Round Multiple-Ratchet methodology
 │
+├── agent/
+│   ├── __init__.py                # Re-exports CompanyResearchAgent, ResearchResult
+│   └── research.py                # Epic 3: LangGraph research agent (5 nodes)
+│                                  #   + DuckDuckGo search + multi-provider LLM extraction
+│                                  #   + regex fallback + _get_llm() provider chain
+│
+├── data_sources/
+│   ├── ...                        # (existing mock + live sources from Epic 1-2)
+│   ├── form_d.py                  # Epic 3.1: SEC Form D filings via EDGAR EFTS
+│   └── usaspending.py             # Epic 3.3: Federal contracts via USASpending.gov
+│
 tests/
 ├── test_engine.py                 # 138 tests — engine, methodologies, server, CLI, validation
 ├── test_yfinance.py               # Epic 1 tests — YFinanceMarketIndexSource
 ├── test_epic2.py                  # 43 tests — EDGAR, metrics, embeddings, composite source
 ├── test_multiple_ratchet.py       # 39 tests — Multiple-Ratchet methodology
+├── test_epic3.py                  # 77 tests — FormD, USASpending, agent nodes, /research
 │
 examples/
 ├── comps_request.json             # Sample Comparable Companies request
@@ -97,7 +128,7 @@ examples/
 └── techco_ratchet_request.json    # Sample Multiple-Ratchet request (TechCo scenario)
 ```
 
-**20 source files, ~2,300 lines of production code, 192 total tests.**
+**25 source files, ~3,500 lines of production code, 297 total tests.**
 
 ---
 
@@ -503,15 +534,17 @@ The output envelope separates deterministic from non-deterministic content:
 ### Test Pyramid
 
 ```
-192 total tests
-├── 181 unit tests (run offline, <2 seconds)
+297 total tests
+├── 280 unit tests (run offline, <2 seconds)
 │   ├── test_engine.py    — 138 tests (engine, methodologies, server, CLI, validation)
 │   ├── test_yfinance.py  — Epic 1 offline tests
-│   └── test_epic2.py     — 43 tests (EDGAR, metrics, embeddings, composite)
+│   ├── test_epic2.py     — 43 tests (EDGAR, metrics, embeddings, composite)
+│   └── test_epic3.py     — 77 tests (Form D, USASpending, agent pipeline, /research)
 │
-└── 11 integration tests (marked @pytest.mark.integration, require network)
+└── 17 integration tests (marked @pytest.mark.integration, require network)
     ├── test_yfinance.py  — live Yahoo Finance index tests
-    └── test_epic2.py     — live EDGAR, yfinance, embedding tests
+    ├── test_epic2.py     — live EDGAR, yfinance, embedding tests
+    └── test_epic3.py     — live Form D, USASpending, agent tests
 ```
 
 ### Mocking Strategy
@@ -525,6 +558,9 @@ All unit tests run fully offline. The mocking targets match the lazy-import patt
 | `edgar_universe.py` | `httpx.get` | `httpx` imported inside method bodies (not module-level) |
 | `embedding_ranker.py` | Direct `_model` attribute injection | Avoids loading the 80 MB model in tests |
 | `edgar_comps.py` | `MagicMock(spec=...)` for all three sub-components | Tested as pure orchestration |
+| `form_d.py` | `httpx.get` | Lazy `import httpx` inside methods |
+| `usaspending.py` | `httpx.post` | Lazy `import httpx` inside methods |
+| `research.py` | `vc_audit_tool.agent.research.DDGS` + env clearing | Must clear all API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `OLLAMA_MODEL`) and mock `DDGS` to prevent live searches |
 
 ### Quality Gate Commands
 
@@ -546,8 +582,20 @@ python -m pytest tests/ -q      # Unit tests only (integration deselected by def
 | `fastapi` | ≥ 0.115 | `server.py` — HTTP API + Web UI |
 | `uvicorn` | ≥ 0.30 | `server.py` — ASGI server |
 | `yfinance` | ≥ 0.2.31 | `yfinance_market_index.py`, `yfinance_metrics.py` |
-| `httpx` | ≥ 0.27 | `edgar_universe.py` — EDGAR API calls |
+| `httpx` | ≥ 0.27 | `edgar_universe.py`, `form_d.py`, `usaspending.py` |
 | `sentence-transformers` | ≥ 2.2 | `embedding_ranker.py` — semantic ranking |
+| `langgraph` | ≥ 1.0 | `research.py` — agent state graph |
+| `langchain-core` | ≥ 0.3 | `research.py` — message types |
+| `langchain-ollama` | ≥ 0.3 | `research.py` — Ollama LLM provider |
+| `duckduckgo-search` | ≥ 7.0 | `research.py` — free web search |
+
+### Optional LLM Dependencies (`pip install -e ".[llm]"`)
+
+| Package | Version | Provider |
+|---------|---------|----------|
+| `langchain-openai` | ≥ 0.3 | OpenAI GPT-4o-mini |
+| `langchain-anthropic` | ≥ 0.3 | Anthropic Claude 3.5 Haiku |
+| `langchain-google-genai` | ≥ 2.0 | Google Gemini 2.0 Flash |
 
 ### Dev Dependencies
 
@@ -577,6 +625,86 @@ This means:
 - `import vc_audit_tool` is fast (~10 ms)
 - The 80 MB sentence-transformer model only loads when someone actually calls the embedding ranker
 - Mock-only usage never touches `yfinance` or `httpx`
+
+---
+
+## Research Agent (Epic 3)
+
+### Overview
+
+The `CompanyResearchAgent` is a LangGraph `StateGraph` that takes **only a company name** and automatically assembles the structured inputs needed for valuation. It does NOT call the valuation engine — it only produces a `ValuationRequest`-shaped dict.
+
+### Pipeline
+
+```
+company_name
+    │
+    ▼
+┌─────────────────┐
+│  parse_company   │  Normalise name, infer sector from keywords
+└────────┬────────┘
+         ▼
+┌─────────────────┐
+│    form_d        │  Search SEC EDGAR EFTS for Form D filings
+└────────┬────────┘    → funding rounds (date, issuer, filing URL)
+         ▼
+┌─────────────────┐
+│  web_research    │  4 DuckDuckGo queries × 6 results
+│                  │  → regex extraction (always)
+│                  │  → LLM extraction (if provider available)
+└────────┬────────┘
+         ▼
+┌─────────────────┐
+│   contracts      │  USASpending.gov federal contract lookup
+└────────┬────────┘    → award amounts, agencies, descriptions
+         ▼
+┌─────────────────┐
+│    assemble      │  Auto-select methodology, validate completeness,
+│                  │  build ValuationRequest dict
+└─────────────────┘
+```
+
+### LLM Provider Chain (`_get_llm()`)
+
+The web research node uses a **multi-provider fallback chain**:
+
+```
+OPENAI_API_KEY set?   → ChatOpenAI(gpt-4o-mini)
+    ↓ no
+ANTHROPIC_API_KEY set? → ChatAnthropic(claude-3-5-haiku)
+    ↓ no
+GOOGLE_API_KEY set?    → ChatGoogleGenerativeAI(gemini-2.0-flash)
+    ↓ no
+OLLAMA_MODEL set?      → ChatOllama(local model)
+    ↓ no
+Regex-only mode        → still extracts valuations, revenue, dates
+```
+
+Each provider is wrapped in `try/except` — if init fails, the next provider is tried. The system always works because regex extraction runs unconditionally before LLM extraction.
+
+### Data Sources
+
+| Source | Module | API | Data Extracted |
+|--------|--------|-----|---------------|
+| SEC Form D | `form_d.py` | EDGAR EFTS full-text search | Funding dates, issuer names, filing URLs |
+| USASpending.gov | `usaspending.py` | REST API | Contract amounts, agencies, descriptions |
+| DuckDuckGo | `research.py` | `duckduckgo-search` | Revenue, valuations, round dates, descriptions |
+
+All sources use a 7-day disk cache with the same pattern as Epic 1-2 sources.
+
+### Web Research Strategy
+
+1. **Search phase**: 4 targeted queries run through DuckDuckGo:
+   - `"{name} latest funding round valuation post-money"`
+   - `"{name} annual revenue ARR"`
+   - `"{name} Series A B C D funding raised investors"`
+   - `"{name} company overview private valuation"`
+
+2. **Regex extraction** (always runs): patterns for `$X billion valuation`, `raised $X million`, `$X million in revenue`, and dates near funding keywords.
+
+3. **LLM extraction** (when available): sends first 4,000 chars of search snippets with a system prompt requesting structured JSON with `revenue_ltm`, `last_round_date`, `last_round_amount_raised`, `last_post_money_valuation`, `company_description`, and `sources`.
+
+LLM results **override** regex results (they're more accurate), but regex provides a safety net when no LLM is configured.
 
 ---
 

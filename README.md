@@ -47,6 +47,11 @@ curl http://127.0.0.1:8080/health       # → {"status":"ok"}
 curl -X POST http://127.0.0.1:8080/value -H 'Content-Type: application/json' \
      -d @examples/comps_request.json
 
+# Automated research — just a company name:
+curl -X POST http://127.0.0.1:8080/research \
+     -H 'Content-Type: application/json' \
+     -d '{"company_name": "Anthropic"}'
+
 open http://127.0.0.1:8080              # Web UI with run history
 open http://127.0.0.1:8080/docs         # Auto-generated OpenAPI docs
 ```
@@ -106,7 +111,7 @@ The `target_description` is the key input for finding relevant comps. You can:
 ## Running Tests
 
 ```bash
-# Unit tests only (default, no network needed) — ~220 tests
+# Unit tests only (default, no network needed) — ~297 tests
 python -m pytest tests/ -q
 
 # Include integration tests (hits SEC EDGAR + Yahoo Finance APIs)
@@ -126,16 +131,16 @@ All four must pass before committing:
 ```bash
 ruff check src/ tests/               # linter (pyflakes, isort, bugbear, etc.)
 ruff format --check src/ tests/      # formatter
-mypy src/                            # strict type checking (21 source files)
-python -m pytest tests/ -q           # 220 unit tests
+mypy src/                            # strict type checking (25 source files)
+python -m pytest tests/ -q           # 297 unit tests
 ```
 
 Current status:
 ```
 ruff check:   ✅ All checks passed
-ruff format:  ✅ 34 files already formatted
-mypy:         ✅ Success: no issues found in 21 source files
-pytest:       ✅ 220 passed, 11 deselected (integration)
+ruff format:  ✅ 39 files already formatted
+mypy:         ✅ Success: no issues found in 25 source files
+pytest:       ✅ 297 passed, 11 deselected (integration)
 ```
 
 ---
@@ -343,15 +348,70 @@ This methodology is ideal for scenarios where sector multiples have contracted (
 | **MVP** | Valuation engine, 3 methodologies, CLI, FastAPI server, Web UI, SQLite persistence | ✅ Complete |
 | **Epic 1** | `YFinanceMarketIndexSource` — live NASDAQ/Russell 2000 levels via Yahoo Finance | ✅ Complete |
 | **Epic 2** | Real Comparable Companies — EDGAR universe + yfinance metrics + embedding ranker | ✅ Complete |
-| **Epic 3** | Multiple-Ratchet methodology — sector multiple compression / expansion + revenue performance | ✅ Complete |
+| **Epic 3** | Private Company Data Agent — LangGraph research agent, Form D, USASpending, DuckDuckGo + multi-provider LLM extraction | ✅ Complete |
+| **Epic 4** | `POST /research` endpoint — one-call company valuation from just a name | ✅ Complete |
+
+### Automated Research Agent (`POST /research`)
+
+The research agent can produce a **full valuation from just a company name**:
+
+```bash
+curl -X POST http://127.0.0.1:8080/research \
+  -H "Content-Type: application/json" \
+  -d '{"company_name": "Stripe"}'
+```
+
+**What happens under the hood:**
+
+1. **Parse** — normalise company name, infer sector from keywords
+2. **SEC Form D** — search EDGAR EFTS for Regulation D filings (funding rounds)
+3. **Web research** — 4 DuckDuckGo queries × 6 results, then LLM-structured extraction
+4. **Federal contracts** — query USASpending.gov for government revenue
+5. **Assemble** — auto-select methodology, build a complete `ValuationRequest`
+6. **Engine** — run the valuation and return an auditable result with full derivation trail
+
+### LLM Provider Configuration
+
+The agent uses a **multi-provider fallback chain**. Set one or more API keys as environment variables:
+
+| Priority | Provider | Env Var | Cost/Request |
+|----------|----------|---------|-------------|
+| 1 | **OpenAI GPT-4o-mini** | `OPENAI_API_KEY` | ~$0.002 |
+| 2 | **Anthropic Claude 3.5 Haiku** | `ANTHROPIC_API_KEY` | ~$0.003 |
+| 3 | **Google Gemini 2.0 Flash** | `GOOGLE_API_KEY` | ~$0.001 |
+| 4 | **Ollama (local)** | `OLLAMA_MODEL` | $0 |
+| 5 | **Regex-only fallback** | *(none needed)* | $0 |
+
+```bash
+# Example: use OpenAI (highest priority when set)
+export OPENAI_API_KEY="sk-..."
+
+# Optional: override the default model
+export OPENAI_MODEL="gpt-4o"
+
+# Or use a local Ollama model (no API key needed)
+export OLLAMA_MODEL="llama3.2"
+```
+
+The first available provider wins. If no LLM is configured, the agent still works using regex extraction from search snippets.
+
+To install the optional LLM provider packages:
+
+```bash
+pip install -e ".[llm]"    # installs langchain-google-genai, langchain-anthropic, langchain-openai
+```
 
 ### Can It Value Real Companies Today?
 
-**Yes, with one manual input.** The engine can produce real valuations for private companies using live public market data. The only thing a user needs to provide is:
+**Yes — fully automated or with manual input.**
+
+**Automated mode** (`POST /research`): provide only a company name. The agent searches SEC filings, the web, and government contracts to assemble inputs, then runs the valuation engine.
+
+**Manual mode** (`POST /value` or CLI): provide structured inputs directly. The engine can produce real valuations for private companies using live public market data. You need:
 
 1. **Revenue (LTM)** — the target company's last-twelve-months revenue
 2. **Sector** — maps to SIC codes for finding public peers
-3. **Target description** (recommended) — a 1–2 sentence description of what the company does, used for semantic matching of the most relevant public comparables
+3. **Target description** (recommended) — a 1–2 sentence description for semantic comp matching
 
 The system will then automatically:
 - Pull the EDGAR universe of ~10,000+ public companies
@@ -363,9 +423,9 @@ The system will then automatically:
 
 | Epic | Feature | Description |
 |------|---------|-------------|
-| **Epic 4** | CLI + Server integration | Wire live providers into CLI flags (`--live`) and server config |
 | **Epic 5** | Auto-description | Scrape company website or use LLM to generate `target_description` automatically |
 | **Epic 6** | Additional methodologies | DCF, weighted average of methods, multi-currency support |
+| **Epic 7** | CLI `--live` flag | Wire live providers into CLI flags for command-line valuations |
 
 ---
 

@@ -29,16 +29,18 @@ __all__ = [
     "EdgarCompanyUniverse",
     "EdgarYFinanceComparableCompanySource",
     "EmbeddingCompsRanker",
+    "FormDSource",
     "MARKET_INDEX_DATASET_VERSION",
     "MarketIndexPoint",
     "MockComparableCompanySource",
     "MockMarketIndexSource",
+    "USASpendingSource",
     "YFinanceMetricsFetcher",
 ]
 
 
 def __getattr__(name: str) -> object:
-    """Lazy imports for heavy Epic-2 modules (avoid loading yfinance/torch at startup)."""
+    """Lazy imports for heavy Epic-2/3 modules (avoid loading yfinance/torch at startup)."""
     if name == "EdgarCompanyUniverse":
         from vc_audit_tool.data_sources.edgar_universe import EdgarCompanyUniverse
 
@@ -55,4 +57,12 @@ def __getattr__(name: str) -> object:
         from vc_audit_tool.data_sources.yfinance_metrics import YFinanceMetricsFetcher
 
         return YFinanceMetricsFetcher
+    if name == "FormDSource":
+        from vc_audit_tool.data_sources.form_d import FormDSource
+
+        return FormDSource
+    if name == "USASpendingSource":
+        from vc_audit_tool.data_sources.usaspending import USASpendingSource
+
+        return USASpendingSource
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
