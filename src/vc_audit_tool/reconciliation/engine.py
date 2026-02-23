@@ -121,6 +121,8 @@ def _build_request(
         if dp.revenue_ltm is not None:
             inputs["revenue_ltm"] = float(dp.revenue_ltm)
         inputs["private_company_discount_pct"] = float(dp.private_company_discount_pct)
+        if dp.target_description:
+            inputs["target_description"] = dp.target_description
 
     elif methodology == "last_round_market_adjusted":
         if dp.last_post_money is not None:
@@ -137,6 +139,8 @@ def _build_request(
         if dp.current_revenue is not None:
             inputs["current_revenue"] = float(dp.current_revenue)
         inputs["private_company_discount_pct"] = float(dp.private_company_discount_pct)
+        if dp.target_description:
+            inputs["target_description"] = dp.target_description
 
     elif methodology == "scorecard":
         if dp.regional_median_pre_money is not None:

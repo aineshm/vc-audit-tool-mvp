@@ -63,6 +63,7 @@ def _make_data_package(
     berkus_factors: dict[str, bool | float] | None = None,
     max_pre_money: Decimal | None = None,
     peer_set_quality: str | None = None,
+    target_description: str | None = None,
 ) -> DataPackage:
     return DataPackage(
         last_post_money=last_post_money,
@@ -78,6 +79,7 @@ def _make_data_package(
         max_pre_money_valuation=max_pre_money,
         revenue_at_last_round=revenue_at_last_round,
         current_revenue=current_revenue,
+        target_description=target_description,
     )
 
 
@@ -302,6 +304,7 @@ class TestDataPackageFromAssembled(unittest.TestCase):
                 "peer_set_quality": "HIGH",
                 "private_company_discount_pct": 20,
                 "public_index": "RUSSELL_2000",
+                "target_description": "API security platform for fintech teams",
             },
         }
         dp = DataPackage.from_assembled_request(assembled)
@@ -312,6 +315,7 @@ class TestDataPackageFromAssembled(unittest.TestCase):
         self.assertEqual(dp.peer_set_quality, "HIGH")
         self.assertEqual(dp.private_company_discount_pct, Decimal("20"))
         self.assertEqual(dp.public_index, "RUSSELL_2000")
+        self.assertEqual(dp.target_description, "API security platform for fintech teams")
 
     def test_defaults(self) -> None:
         assembled: dict[str, Any] = {"inputs": {}}
@@ -359,10 +363,10 @@ class TestMethodologySelectorStages(unittest.TestCase):
             },
             berkus_factors={
                 "sound_idea": True,
-                "working_prototype": True,
+                "prototype": True,
                 "quality_management": True,
                 "strategic_relationships": True,
-                "product_rollout_or_sales": False,
+                "product_rollout": False,
             },
             max_pre_money=Decimal("2000000"),
         )
@@ -395,10 +399,10 @@ class TestMethodologySelectorStages(unittest.TestCase):
             },
             berkus_factors={
                 "sound_idea": True,
-                "working_prototype": True,
+                "prototype": True,
                 "quality_management": True,
                 "strategic_relationships": True,
-                "product_rollout_or_sales": True,
+                "product_rollout": True,
             },
             max_pre_money=Decimal("2000000"),
         )
@@ -697,6 +701,29 @@ class TestReconciliationEngineIntegration(unittest.TestCase):
         self.assertGreaterEqual(cv.range_high, cv.point_estimate)
         self.assertEqual(cv.currency, "USD")
 
+    def test_target_description_is_forwarded_to_comps_method(self) -> None:
+        from vc_audit_tool.reconciliation.engine import ReconciliationEngine
+
+        engine = ReconciliationEngine.mock()
+        profile = _make_profile(stage="growth")
+        dp = _make_data_package(
+            revenue_ltm=Decimal("15000000"),
+            last_post_money=Decimal("100000000"),
+            last_round_date=date(2025, 6, 1),
+            target_description="workflow automation software for healthcare ops teams",
+        )
+        rv = engine.value(
+            profile=profile,
+            data_package=dp,
+            as_of_date=date(2026, 2, 22),
+            company_name="TestCo",
+        )
+        comps_result = rv.methodology_results["comparable_companies"]["valuation_result"]
+        self.assertEqual(
+            comps_result["inputs_used"]["target_description"],
+            "workflow automation software for healthcare ops teams",
+        )
+
     def test_pre_seed_scorecard_berkus(self) -> None:
         from vc_audit_tool.reconciliation.engine import ReconciliationEngine
 
@@ -722,10 +749,10 @@ class TestReconciliationEngineIntegration(unittest.TestCase):
             },
             berkus_factors={
                 "sound_idea": True,
-                "working_prototype": 0.5,
+                "prototype": 0.5,
                 "quality_management": True,
                 "strategic_relationships": False,
-                "product_rollout_or_sales": False,
+                "product_rollout": False,
             },
             max_pre_money=Decimal("2500000"),
         )

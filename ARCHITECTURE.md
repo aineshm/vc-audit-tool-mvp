@@ -75,6 +75,14 @@ The engine is **data-source agnostic**. It accepts any object satisfying the `Pr
 
 The **reconciliation layer** (Phase 2) sits above the valuation engine: it profiles the company, selects applicable methodologies with stage-based weights from a YAML config, runs each through the engine, and reconciles the results into a single concluded valuation with divergence analysis.
 
+### Endpoint Interaction Modes
+
+| Endpoint | Input Style | Methodology Selection | Sector Handling |
+|----------|-------------|-----------------------|-----------------|
+| `POST /research` | Research-first (`company_name` + optional hints) | Auto-selected by research agent when omitted | Inferred by agent |
+| `POST /reconcile` | Research-first (`company_name` + optional hints) | Selected by reconciliation selector/rules | Inferred from assembled research data |
+| `POST /value` or `POST /api/value` | Manual structured payload | Explicitly provided by caller | Required for manual `comparable_companies` |
+
 ---
 
 ## Directory Structure
@@ -178,7 +186,9 @@ Data sources are defined as `typing.Protocol` (PEP 544) -- structural subtyping 
 ```python
 @runtime_checkable
 class ComparableCompanySource(Protocol):
-    def list_by_sector(self, sector: str) -> list[ComparableCompany]: ...
+    def list_by_sector(
+        self, sector: str, *, target_description: str | None = None
+    ) -> list[ComparableCompany]: ...
     def list_by_tickers(self, tickers: Iterable[str]) -> list[ComparableCompany]: ...
     @staticmethod
     def aggregate_multiple(comps: list[ComparableCompany], statistic: str) -> Decimal: ...
@@ -565,16 +575,16 @@ list_by_sector("enterprise_software")
 
 | # | Name | Class | Key Inputs |
 |---|------|-------|-----------|
-| 1 | `comparable_companies` | `ComparableCompaniesMethodology` | `revenue_ltm`, `sector`, `private_company_discount_pct` |
+| 1 | `comparable_companies` | `ComparableCompaniesMethodology` | `revenue_ltm`, `sector`, `private_company_discount_pct`, optional `target_description` |
 | 2 | `last_round_market_adjusted` | `LastRoundMarketAdjustedMethodology` | `last_post_money_valuation`, `last_round_date`, `public_index` |
-| 3 | `last_round_multiple_ratchet` | `LastRoundMultipleRatchetMethodology` | `last_post_money_valuation`, `revenue_at_last_round`, `current_revenue`, `sector` |
+| 3 | `last_round_multiple_ratchet` | `LastRoundMultipleRatchetMethodology` | `last_post_money_valuation`, `revenue_at_last_round`, `current_revenue`, `sector`, optional `target_description` |
 
 ### Phase 2 Methodologies
 
 | # | Name | Class | Key Inputs |
 |---|------|-------|-----------|
 | 4 | `scorecard` | `ScorecardMethodology` | `regional_median_pre_money`, `scorecard_factors` (7 Payne factors) |
-| 5 | `berkus` | `BerkusMethodology` | `max_pre_money_valuation`, `berkus_factors` (5 risk dimensions) |
+| 5 | `berkus` | `BerkusMethodology` | `max_pre_money_valuation`, `factors` (5 risk dimensions) |
 
 **Scorecard -- Payne's 7 Factors:**
 
@@ -1039,15 +1049,22 @@ SECTOR_MULTIPLES = {
 }
 ```
 
-### CLI `--live` Flag
+### Runtime Mode Controls
 
-To enable live market data in the CLI:
+Runtime mode defaults to **live** data sources.
+
+Use `VC_AUDIT_MOCK=1` to force mock data sources globally:
 
 ```bash
-vc-audit value examples/comps_request.json --live
+VC_AUDIT_MOCK=1 python -m vc_audit_tool.cli value --request-file examples/comps_request.json
 ```
 
-This swaps mock data sources for real `yfinance` + `EDGAR` + `USASpending` sources.
+The server also supports explicit mode selection:
+
+```bash
+python -m vc_audit_tool.server --mode mock
+python -m vc_audit_tool.server --mode live
+```
 
 ### Phase 2 Extension Points
 

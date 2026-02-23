@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import unittest
+from unittest.mock import patch
 
 from vc_audit_tool.data_sources import MockComparableCompanySource, MockMarketIndexSource
 from vc_audit_tool.engine import ValuationEngine
@@ -78,6 +80,41 @@ class ValuationEngineTests(unittest.TestCase):
         with self.assertRaises(DataSourceError):
             self.engine.evaluate_from_dict(payload)
 
+    def test_comps_target_description_is_passed_to_source(self) -> None:
+        class CapturingCompsSource(MockComparableCompanySource):
+            def __init__(self) -> None:
+                super().__init__()
+                self.last_target_description: str | None = None
+
+            def list_by_sector(
+                self, sector: str, *, target_description: str | None = None
+            ) -> list:  # type: ignore[override]
+                self.last_target_description = target_description
+                return super().list_by_sector(sector, target_description=target_description)
+
+        comps_source = CapturingCompsSource()
+        engine = ValuationEngine(
+            index_source=MockMarketIndexSource(),
+            comps_source=comps_source,
+        )
+        payload = {
+            "company_name": "Inflo",
+            "methodology": "comparable_companies",
+            "as_of_date": "2026-02-18",
+            "inputs": {
+                "sector": "enterprise_software",
+                "revenue_ltm": 10_000_000,
+                "statistic": "median",
+                "private_company_discount_pct": 20,
+                "target_description": "Cloud compliance software for enterprise finance teams",
+            },
+        }
+        engine.evaluate_from_dict(payload)
+        self.assertEqual(
+            comps_source.last_target_description,
+            "Cloud compliance software for enterprise finance teams",
+        )
+
 
 class ProtocolConformanceTests(unittest.TestCase):
     """Verify mock implementations satisfy their Protocol contracts at runtime."""
@@ -89,6 +126,23 @@ class ProtocolConformanceTests(unittest.TestCase):
     def test_mock_comps_is_comparable_company_source(self) -> None:
         source = MockComparableCompanySource()
         self.assertIsInstance(source, ComparableCompanySource)
+
+
+class DefaultSourceSelectionTests(unittest.TestCase):
+    def test_default_engine_uses_mock_sources_when_env_enabled(self) -> None:
+        with patch.dict(os.environ, {"VC_AUDIT_MOCK": "1"}, clear=False):
+            engine = ValuationEngine()
+        self.assertEqual(type(engine.context.index_source).__name__, "MockMarketIndexSource")
+        self.assertEqual(type(engine.context.comps_source).__name__, "MockComparableCompanySource")
+
+    def test_default_engine_uses_live_sources_by_default(self) -> None:
+        with patch.dict(os.environ, {"VC_AUDIT_MOCK": "0"}, clear=False):
+            engine = ValuationEngine()
+        self.assertEqual(type(engine.context.index_source).__name__, "YFinanceMarketIndexSource")
+        self.assertEqual(
+            type(engine.context.comps_source).__name__,
+            "EdgarYFinanceComparableCompanySource",
+        )
 
 
 if __name__ == "__main__":

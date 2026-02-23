@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -22,6 +23,24 @@ from vc_audit_tool.exceptions import DataSourceError
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CACHE_DIR = Path("data/yfinance_metrics_cache")
+_MAX_FETCH_ATTEMPTS = 3
+_BASE_RETRY_SLEEP_SECONDS = 0.2
+
+_TRANSIENT_ERROR_MARKERS = (
+    "timed out",
+    "timeout",
+    "temporar",
+    "connection",
+    "network",
+    "429",
+    "too many requests",
+    "rate limit",
+    "remote end closed",
+)
+
+_NON_TRANSIENT_ERROR_MARKERS = (
+    "no data returned by yfinance",
+)
 
 # Lazy but patchable — same pattern as yfinance_market_index.py
 yf: ModuleType | None = None
@@ -116,13 +135,31 @@ class YFinanceMetricsFetcher:
         return metrics
 
     def fetch_many(self, tickers: list[str]) -> list[TickerMetrics]:
-        """Fetch metrics for multiple tickers. Never raises for individual failures."""
+        """Fetch metrics for multiple tickers with retry for transient failures."""
         results: list[TickerMetrics] = []
         for t in tickers:
-            try:
-                results.append(self.fetch(t))
-            except DataSourceError:
-                logger.warning("skipping ticker %s — fetch failed", t)
+            for attempt in range(1, _MAX_FETCH_ATTEMPTS + 1):
+                try:
+                    results.append(self.fetch(t))
+                    break
+                except DataSourceError as exc:
+                    message = str(exc).lower()
+                    is_retryable = _is_retryable_fetch_error(message)
+                    is_last_attempt = attempt == _MAX_FETCH_ATTEMPTS
+                    if not is_retryable or is_last_attempt:
+                        logger.warning("skipping ticker %s — fetch failed: %s", t, exc)
+                        break
+                    delay_s = _BASE_RETRY_SLEEP_SECONDS * (2 ** (attempt - 1))
+                    logger.warning(
+                        "transient fetch error for ticker %s "
+                        "(attempt %d/%d): %s; retrying in %.1fs",
+                        t,
+                        attempt,
+                        _MAX_FETCH_ATTEMPTS,
+                        exc,
+                        delay_s,
+                    )
+                    time.sleep(delay_s)
         return results
 
     # ── Private helpers ──
@@ -222,3 +259,9 @@ class YFinanceMetricsFetcher:
         }
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         logger.debug("wrote metrics cache %s", path)
+
+
+def _is_retryable_fetch_error(message: str) -> bool:
+    if any(marker in message for marker in _NON_TRANSIENT_ERROR_MARKERS):
+        return False
+    return any(marker in message for marker in _TRANSIENT_ERROR_MARKERS)

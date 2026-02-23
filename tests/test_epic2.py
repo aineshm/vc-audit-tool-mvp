@@ -224,6 +224,56 @@ class TestYFinanceMetricsFetcher(unittest.TestCase):
         self.assertIn("MSFT", tickers)
         self.assertIn("GOOGL", tickers)
 
+    def test_fetch_many_retries_transient_failures(self) -> None:
+        good = TickerMetrics(
+            ticker="MSFT",
+            company_name="Microsoft",
+            sector="Technology",
+            industry="Software",
+            enterprise_value=Decimal("10"),
+            total_revenue=Decimal("2"),
+            ev_to_revenue=Decimal("5"),
+            market_cap=Decimal("100"),
+            business_summary="",
+            retrieved_at="2026-01-01T00:00:00Z",
+        )
+        with (
+            patch.object(
+                self.fetcher,
+                "fetch",
+                side_effect=[DataSourceError("request timed out"), good],
+            ) as fetch_mock,
+            patch("vc_audit_tool.data_sources.yfinance_metrics.time.sleep") as sleep_mock,
+        ):
+            results = self.fetcher.fetch_many(["MSFT"])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].ticker, "MSFT")
+        self.assertEqual(fetch_mock.call_count, 2)
+        sleep_mock.assert_called_once()
+
+    def test_fetch_many_skips_after_retry_budget_exhausted(self) -> None:
+        with (
+            patch.object(
+                self.fetcher,
+                "fetch",
+                side_effect=DataSourceError("connection reset by peer"),
+            ) as fetch_mock,
+            patch("vc_audit_tool.data_sources.yfinance_metrics.time.sleep"),
+        ):
+            results = self.fetcher.fetch_many(["MSFT"])
+        self.assertEqual(results, [])
+        self.assertEqual(fetch_mock.call_count, 3)
+
+    def test_fetch_many_does_not_retry_non_transient_no_data_error(self) -> None:
+        with patch.object(
+            self.fetcher,
+            "fetch",
+            side_effect=DataSourceError("No data returned by yfinance for 'MSFT'."),
+        ) as fetch_mock:
+            results = self.fetcher.fetch_many(["MSFT"])
+        self.assertEqual(results, [])
+        self.assertEqual(fetch_mock.call_count, 1)
+
     def test_dataset_version_set_after_fetch(self) -> None:
         with self._patch_ticker_info(_make_yf_info()):
             self.fetcher.fetch("MSFT")
@@ -660,6 +710,23 @@ class TestEdgarYFinanceCompositeOffline(unittest.TestCase):
         self.assertEqual(len(comps), 2)
         # Should NOT have called the ranker
         self.mock_ranker.rank.assert_not_called()
+
+    def test_per_call_target_description_invokes_ranking(self) -> None:
+        """A request-level description should trigger embedding ranking."""
+        source = EdgarYFinanceComparableCompanySource(
+            edgar=self.mock_edgar,
+            metrics=self.mock_metrics,
+            ranker=self.mock_ranker,
+            cache_root=self.cache_root,
+            top_k=2,
+            target_description="",  # default empty; rely on per-call input
+        )
+        comps = source.list_by_sector(
+            "enterprise_software",
+            target_description="observability tools for cloud infrastructure",
+        )
+        self.assertEqual(len(comps), 2)
+        self.mock_ranker.rank.assert_called_once()
 
 
 # ═══════════════════════════════════════════════════════════════════════════

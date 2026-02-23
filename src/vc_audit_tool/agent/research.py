@@ -599,10 +599,22 @@ def _assemble_node(state: ResearchState) -> ResearchState:
         else:
             methodology = "comparable_companies"
 
+    description_hint_raw = state.get("description_hint", "")
+    description_hint = (
+        description_hint_raw.strip() if isinstance(description_hint_raw, str) else ""
+    )
+
     if methodology == "last_round_market_adjusted":
         request_dict, missing = _assemble_last_round(name, as_of_date, web_facts, form_d_rounds)
     elif methodology in ("comparable_companies", "last_round_multiple_ratchet"):
-        request_dict, missing = _assemble_comps(name, as_of_date, methodology, sector, web_facts)
+        request_dict, missing = _assemble_comps(
+            name,
+            as_of_date,
+            methodology,
+            sector,
+            web_facts,
+            description_hint=description_hint,
+        )
     else:
         missing.append(f"unsupported methodology: {methodology}")
 
@@ -665,6 +677,8 @@ def _assemble_comps(
     methodology: str,
     sector: str,
     web_facts: dict[str, Any],
+    *,
+    description_hint: str = "",
 ) -> tuple[dict[str, Any] | None, list[str]]:
     """Try to build a comparable_companies or multiple_ratchet request."""
     missing: list[str] = []
@@ -675,7 +689,7 @@ def _assemble_comps(
             missing.append("revenue_ltm")
         if missing:
             return None, missing
-        return {
+        payload = {
             "company_name": name,
             "methodology": "comparable_companies",
             "as_of_date": as_of_date,
@@ -685,7 +699,10 @@ def _assemble_comps(
                 "statistic": "median",
                 "private_company_discount_pct": 25,
             },
-        }, []
+        }
+        if description_hint:
+            payload["inputs"]["target_description"] = description_hint
+        return payload, []
 
     # last_round_multiple_ratchet
     post_money = web_facts.get("last_post_money_valuation")
@@ -699,7 +716,7 @@ def _assemble_comps(
     # if not explicitly available — flagged as an estimate
     if missing:
         return None, missing
-    return {
+    payload = {
         "company_name": name,
         "methodology": "last_round_multiple_ratchet",
         "as_of_date": as_of_date,
@@ -711,7 +728,10 @@ def _assemble_comps(
             "statistic": "median",
             "private_company_discount_pct": 25,
         },
-    }, []
+    }
+    if description_hint:
+        payload["inputs"]["target_description"] = description_hint
+    return payload, []
 
 
 # ---------------------------------------------------------------------------

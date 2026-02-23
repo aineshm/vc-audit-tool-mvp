@@ -847,6 +847,7 @@ class AssembleNodeTests(unittest.TestCase):
             "as_of_date": "2026-01-01",
             "methodology": "",
             "inferred_sector": "enterprise_software",
+            "description_hint": "AI-native compliance platform for banks",
             "web_facts": {
                 "revenue_ltm": 10_000_000,
                 "last_post_money_valuation": None,
@@ -859,6 +860,10 @@ class AssembleNodeTests(unittest.TestCase):
         result = _assemble_node(state)  # type: ignore[arg-type]
         self.assertIsNotNone(result["assembled_request"])
         self.assertEqual(result["assembled_request"]["methodology"], "comparable_companies")
+        self.assertEqual(
+            result["assembled_request"]["inputs"]["target_description"],
+            "AI-native compliance platform for banks",
+        )
 
     def test_missing_fields_when_data_incomplete(self) -> None:
         from vc_audit_tool.agent.research import _assemble_node
@@ -962,6 +967,7 @@ class AssembleNodeTests(unittest.TestCase):
             "as_of_date": "2026-01-01",
             "methodology": "last_round_multiple_ratchet",
             "inferred_sector": "enterprise_software",
+            "description_hint": "Cloud observability tools for enterprise developers",
             "web_facts": {
                 "revenue_ltm": 20_000_000,
                 "last_post_money_valuation": 200_000_000,
@@ -978,6 +984,10 @@ class AssembleNodeTests(unittest.TestCase):
         inputs = result["assembled_request"]["inputs"]
         self.assertEqual(inputs["last_post_money_valuation"], 200_000_000)
         self.assertEqual(inputs["current_revenue"], 20_000_000)
+        self.assertEqual(
+            inputs["target_description"],
+            "Cloud observability tools for enterprise developers",
+        )
 
     def test_last_round_assembled_request_structure(self) -> None:
         from vc_audit_tool.agent.research import _assemble_node

@@ -33,13 +33,17 @@ class ComparableCompaniesMethodology(ValuationMethodology):
 
         src = context.comps_source
         tickers = inputs.get("peer_tickers")
+        target_description_raw = inputs.get("target_description")
+        if target_description_raw is not None and not isinstance(target_description_raw, str):
+            raise ValidationError("Field 'target_description' must be a string when provided.")
+        target_description = target_description_raw.strip() if target_description_raw else None
         if tickers:
             if not isinstance(tickers, list):
                 raise ValidationError("Field 'peer_tickers' must be a list of ticker symbols.")
             comps = src.list_by_tickers(tickers)
             peer_group_descriptor = f"explicit peer list ({', '.join([c.ticker for c in comps])})"
         else:
-            comps = src.list_by_sector(sector)
+            comps = src.list_by_sector(sector, target_description=target_description)
             peer_group_descriptor = f"sector peer set '{sector}'"
 
         selected_multiple = src.aggregate_multiple(comps, statistic)
@@ -116,6 +120,7 @@ class ComparableCompaniesMethodology(ValuationMethodology):
                     for comp in comps
                 ],
                 "private_company_discount_pct": float(private_discount_pct),
+                "target_description": target_description,
             },
             citations=citations,
             derivation_steps=derivation_steps,

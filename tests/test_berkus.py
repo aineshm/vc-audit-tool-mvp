@@ -14,10 +14,10 @@ from vc_audit_tool.models import ValuationRequest
 def _all_true() -> dict[str, bool]:
     return {
         "sound_idea": True,
-        "working_prototype": True,
+        "prototype": True,
         "quality_management": True,
         "strategic_relationships": True,
-        "product_rollout_or_sales": True,
+        "product_rollout": True,
     }
 
 
@@ -59,10 +59,10 @@ class TestBerkusHappyPath(unittest.TestCase):
     def test_partial_float_factors(self) -> None:
         factors: dict[str, bool | float] = {
             "sound_idea": 0.75,
-            "working_prototype": 0.5,
+            "prototype": 0.5,
             "quality_management": False,
             "strategic_relationships": True,
-            "product_rollout_or_sales": 0.25,
+            "product_rollout": 0.25,
         }
         req = ValuationRequest(
             company_name="TestCo",
@@ -85,10 +85,10 @@ class TestBerkusHappyPath(unittest.TestCase):
     def test_mixed_bool_and_float(self) -> None:
         factors: dict[str, bool | float] = {
             "sound_idea": True,
-            "working_prototype": 0.5,
+            "prototype": 0.5,
             "quality_management": False,
             "strategic_relationships": True,
-            "product_rollout_or_sales": False,
+            "product_rollout": False,
         }
         req = ValuationRequest(
             company_name="TestCo",
@@ -110,10 +110,10 @@ class TestBerkusHappyPath(unittest.TestCase):
     def test_factor_completeness_indicator(self) -> None:
         factors: dict[str, bool | float] = {
             "sound_idea": True,
-            "working_prototype": True,
+            "prototype": True,
             "quality_management": False,
             "strategic_relationships": True,
-            "product_rollout_or_sales": False,
+            "product_rollout": False,
         }
         req = ValuationRequest(
             company_name="TestCo",
@@ -182,10 +182,10 @@ class TestBerkusValidation(unittest.TestCase):
     def test_float_out_of_range(self) -> None:
         factors: dict[str, bool | float] = {
             "sound_idea": 1.5,
-            "working_prototype": True,
+            "prototype": True,
             "quality_management": True,
             "strategic_relationships": True,
-            "product_rollout_or_sales": True,
+            "product_rollout": True,
         }
         req = ValuationRequest(
             company_name="TestCo",
@@ -198,6 +198,40 @@ class TestBerkusValidation(unittest.TestCase):
         )
         with self.assertRaises(ValidationError):
             self.engine.evaluate(req)
+
+    def test_legacy_factor_aliases_are_accepted(self) -> None:
+        req = ValuationRequest(
+            company_name="TestCo",
+            methodology="berkus",
+            inputs={
+                "max_pre_money_valuation": 1_000_000,
+                "factors": {
+                    "sound_idea": True,
+                    "working_prototype": True,
+                    "quality_management": True,
+                    "strategic_relationships": True,
+                    "product_rollout_or_sales": True,
+                },
+            },
+            as_of_date=self.as_of,
+        )
+        result = self.engine.evaluate(req)
+        self.assertEqual(result.estimated_fair_value.amount, Decimal("1000000.00"))
+        self.assertIn("prototype", result.inputs_used["factors"])
+        self.assertIn("product_rollout", result.inputs_used["factors"])
+
+    def test_berkus_factors_key_is_accepted(self) -> None:
+        req = ValuationRequest(
+            company_name="TestCo",
+            methodology="berkus",
+            inputs={
+                "max_pre_money_valuation": 1_000_000,
+                "berkus_factors": _all_true(),
+            },
+            as_of_date=self.as_of,
+        )
+        result = self.engine.evaluate(req)
+        self.assertEqual(result.estimated_fair_value.amount, Decimal("1000000.00"))
 
 
 if __name__ == "__main__":

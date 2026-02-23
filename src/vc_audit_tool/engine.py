@@ -33,12 +33,15 @@ logger = logging.getLogger(__name__)
 # Default data-source factories (live, unless VC_AUDIT_MOCK=1)
 # ---------------------------------------------------------------------------
 
-_FORCE_MOCK = os.environ.get("VC_AUDIT_MOCK", "") == "1"
+
+def _force_mock() -> bool:
+    """Return ``True`` when the process is configured for mock sources."""
+    return os.environ.get("VC_AUDIT_MOCK", "") == "1"
 
 
 def _default_index_source() -> MarketIndexSource:
     """Return a live YFinance market-index source (or mock if ``VC_AUDIT_MOCK=1``)."""
-    if _FORCE_MOCK:
+    if _force_mock():
         from vc_audit_tool.data_sources import MockMarketIndexSource
 
         return MockMarketIndexSource()
@@ -49,7 +52,7 @@ def _default_index_source() -> MarketIndexSource:
 
 def _default_comps_source() -> ComparableCompanySource:
     """Return a live EDGAR + yfinance + embedding source (or mock if ``VC_AUDIT_MOCK=1``)."""
-    if _FORCE_MOCK:
+    if _force_mock():
         from vc_audit_tool.data_sources import MockComparableCompanySource
 
         return MockComparableCompanySource()

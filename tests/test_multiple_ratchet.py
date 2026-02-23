@@ -139,6 +139,16 @@ class TestMultipleRatchetHappyPaths(unittest.TestCase):
         self.assertEqual(vr["confidence_indicators"]["peer_count"], 2)
         self.assertIn("LOW", vr["confidence_indicators"]["peer_set_quality"])
 
+    def test_target_description_included_for_sector_comps(self) -> None:
+        payload = self._techco_payload()
+        payload["inputs"]["target_description"] = "AI observability for cloud infra"
+        out = self.engine.evaluate_from_dict(payload).to_dict()
+        vr = out["valuation_result"]
+        self.assertEqual(
+            vr["inputs_used"]["target_description"],
+            "AI observability for cloud infra",
+        )
+
     # Helper
     def _techco_payload(self) -> dict:
         return {

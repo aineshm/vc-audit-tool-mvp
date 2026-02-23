@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 import unittest
+from unittest.mock import MagicMock, patch
 
 from starlette.testclient import TestClient
 
-from vc_audit_tool.server import app
+from vc_audit_tool.engine import ValuationEngine
+from vc_audit_tool.server import app, build_parser
 
 
 class ServerIntegrationTests(unittest.TestCase):
@@ -90,3 +94,47 @@ class ServerIntegrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ServerModeTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        # Restore deterministic engine for the rest of the test suite.
+        from vc_audit_tool import server as server_module
+
+        server_module.engine = ValuationEngine.mock()
+
+    def test_parser_defaults_to_live_mode(self) -> None:
+        args = build_parser().parse_args([])
+        self.assertEqual(args.mode, "live")
+
+    def test_main_mode_mock_overrides_env(self) -> None:
+        fake_store = MagicMock()
+        with (
+            patch.dict(os.environ, {"VC_AUDIT_MOCK": "0"}, clear=False),
+            patch.object(sys, "argv", ["vc-audit-server", "--mode", "mock"]),
+            patch("vc_audit_tool.server.ValuationEngine") as engine_cls,
+            patch("vc_audit_tool.server.ValuationStore", return_value=fake_store),
+            patch("uvicorn.run"),
+        ):
+            from vc_audit_tool import server as server_module
+
+            rc = server_module.main()
+            self.assertEqual(rc, 0)
+            self.assertEqual(os.environ["VC_AUDIT_MOCK"], "1")
+            engine_cls.assert_called_once()
+
+    def test_main_default_live_overrides_mock_env(self) -> None:
+        fake_store = MagicMock()
+        with (
+            patch.dict(os.environ, {"VC_AUDIT_MOCK": "1"}, clear=False),
+            patch.object(sys, "argv", ["vc-audit-server"]),
+            patch("vc_audit_tool.server.ValuationEngine") as engine_cls,
+            patch("vc_audit_tool.server.ValuationStore", return_value=fake_store),
+            patch("uvicorn.run"),
+        ):
+            from vc_audit_tool import server as server_module
+
+            rc = server_module.main()
+            self.assertEqual(rc, 0)
+            self.assertEqual(os.environ["VC_AUDIT_MOCK"], "0")
+            engine_cls.assert_called_once()
