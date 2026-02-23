@@ -18,6 +18,7 @@ dependencies = [
     "langchain-core>=0.3",
     "langchain-ollama>=0.3",
     "duckduckgo-search>=7.0",
+    "pyyaml>=6.0",
 ]
 
 [project.scripts]
@@ -142,4 +143,8 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["duckduckgo_search", "duckduckgo_search.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["yaml", "yaml.*"]
 ignore_missing_imports = true

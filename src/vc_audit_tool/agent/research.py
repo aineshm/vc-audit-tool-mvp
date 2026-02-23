@@ -174,6 +174,9 @@ class ResearchResult:
     error: str | None = None
     """Top-level error message, if any."""
 
+    company_profile: Any | None = None
+    """Optional :class:`CompanyProfile` built by the profiler (Phase 2)."""
+
     @property
     def is_complete(self) -> bool:
         return self.assembled_request is not None and not self.missing_fields
@@ -803,9 +806,25 @@ class CompanyResearchAgent:
                 error=str(exc),
             )
 
+        # Build CompanyProfile if we have assembled data (Phase 2)
+        company_profile = None
+        assembled = final_state.get("assembled_request")
+        if assembled is not None:
+            try:
+                from vc_audit_tool.reconciliation.profiler import CompanyProfiler
+
+                company_profile = CompanyProfiler.build_from_dict(
+                    assembled,
+                    final_state.get("research_metadata"),
+                    date.fromisoformat(as_of_date) if as_of_date else None,
+                )
+            except Exception as exc:
+                logger.warning("profiler failed: %s", exc)
+
         return ResearchResult(
-            assembled_request=final_state.get("assembled_request"),
+            assembled_request=assembled,
             research_metadata=final_state.get("research_metadata", {}),
             missing_fields=final_state.get("missing_fields", []),
             error=final_state.get("error"),
+            company_profile=company_profile,
         )

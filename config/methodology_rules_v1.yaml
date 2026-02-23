@@ -1,0 +1,69 @@
+version: "v1.0"
+
+# Stage-level method exclusions (highest priority)
+stage_exclusions:
+  pre_seed:
+    exclude:
+      - comparable_companies
+      - last_round_market_adjusted
+      - last_round_multiple_ratchet
+    require:
+      - scorecard
+      - berkus
+    note: "Pre-revenue company — quantitative methods require revenue or round data"
+  seed:
+    exclude:
+      - last_round_multiple_ratchet
+    note: "Seed stage — ratchet methodology requires meaningful revenue at last round"
+
+# Data-availability rules (applied after stage exclusions)
+data_rules:
+  last_round_age_months:
+    - condition: "< 6"
+      weight_modifier: "HIGH"
+      rationale: "Round < 6 months old — highly reliable anchor"
+    - condition: "6 to 18"
+      weight_modifier: "MEDIUM"
+      rationale: "Round 6-18 months old — moderate staleness"
+    - condition: "18 to 36"
+      weight_modifier: "LOW"
+      rationale: "Round > 18 months old — staleness risk HIGH"
+    - condition: "> 36"
+      exclude: true
+      rationale: "Round > 3 years old — excluded as unreliable anchor"
+
+  peer_set_quality:
+    - condition: "HIGH"
+      weight_modifier: "HIGH"
+      rationale: "Strong peer set quality — comps method is most reliable"
+    - condition: "MEDIUM"
+      weight_modifier: "MEDIUM"
+      rationale: "Moderate peer set quality"
+    - condition: "LOW"
+      weight_modifier: "LOW"
+      rationale: "Low peer set quality — comps method used with caution"
+
+  has_revenue:
+    - condition: false
+      exclude:
+        - comparable_companies
+      rationale: "No revenue — cannot apply EV/Revenue multiple"
+
+# Base weights by stage (before data-availability adjustments)
+base_weights:
+  pre_seed:
+    scorecard: 0.50
+    berkus: 0.50
+  seed:
+    scorecard: 0.35
+    berkus: 0.30
+    last_round_market_adjusted: 0.35
+  early:
+    comparable_companies: 0.50
+    last_round_market_adjusted: 0.50
+  growth:
+    comparable_companies: 0.60
+    last_round_market_adjusted: 0.40
+  late:
+    comparable_companies: 0.70
+    last_round_market_adjusted: 0.30

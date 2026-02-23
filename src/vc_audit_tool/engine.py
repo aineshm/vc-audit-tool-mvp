@@ -8,9 +8,11 @@ from vc_audit_tool.data_sources import MockComparableCompanySource, MockMarketIn
 from vc_audit_tool.exceptions import ValidationError
 from vc_audit_tool.interfaces import ComparableCompanySource, MarketIndexSource
 from vc_audit_tool.methodologies.base import MethodologyContext, ValuationMethodology
+from vc_audit_tool.methodologies.berkus import BerkusMethodology
 from vc_audit_tool.methodologies.comps import ComparableCompaniesMethodology
 from vc_audit_tool.methodologies.last_round import LastRoundMarketAdjustedMethodology
 from vc_audit_tool.methodologies.multiple_ratchet import LastRoundMultipleRatchetMethodology
+from vc_audit_tool.methodologies.scorecard import ScorecardMethodology
 from vc_audit_tool.models import ValuationRequest, ValuationResult
 
 
@@ -29,6 +31,8 @@ class ValuationEngine:
             LastRoundMarketAdjustedMethodology.name: LastRoundMarketAdjustedMethodology(),
             ComparableCompaniesMethodology.name: ComparableCompaniesMethodology(),
             LastRoundMultipleRatchetMethodology.name: LastRoundMultipleRatchetMethodology(),
+            ScorecardMethodology.name: ScorecardMethodology(),
+            BerkusMethodology.name: BerkusMethodology(),
         }
 
     def evaluate(self, request: ValuationRequest) -> ValuationResult:
