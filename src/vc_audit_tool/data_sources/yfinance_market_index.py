@@ -153,8 +153,13 @@ class YFinanceMarketIndexSource:
             end_date.isoformat(),
         )
 
-        ticker = _yf.Ticker(yf_ticker)
-        hist = ticker.history(start=start_date.isoformat(), end=end_date.isoformat())
+        try:
+            ticker = _yf.Ticker(yf_ticker)
+            hist = ticker.history(start=start_date.isoformat(), end=end_date.isoformat())
+        except Exception as exc:
+            raise DataSourceError(
+                f"yfinance failed to fetch history for '{yf_ticker}': {exc}"
+            ) from exc
 
         if hist.empty:
             raise DataSourceError(

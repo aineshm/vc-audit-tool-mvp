@@ -86,6 +86,7 @@ class DataPackage:
     current_revenue: Decimal | None = None
     private_company_discount_pct: Decimal = Decimal("25")
     public_index: str = "NASDAQ_COMPOSITE"
+    target_description: str | None = None
 
     @staticmethod
     def from_assembled_request(
@@ -132,6 +133,7 @@ class DataPackage:
                 str(inputs.get("private_company_discount_pct", 25))
             ),
             public_index=inputs.get("public_index", "NASDAQ_COMPOSITE"),
+            target_description=inputs.get("target_description"),
         )
 
 

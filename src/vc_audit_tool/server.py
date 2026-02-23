@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -375,6 +376,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", default=8080, type=int)
     parser.add_argument("--db", default="valuation_runs.db", help="SQLite database path.")
     parser.add_argument(
+        "--mode",
+        choices=["live", "mock"],
+        default="live",
+        help="Data-source mode for valuation engine (default: live).",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -392,11 +399,17 @@ def main() -> int:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
 
+    # ``--mode`` is authoritative and overrides ``VC_AUDIT_MOCK``.
+    os.environ["VC_AUDIT_MOCK"] = "1" if args.mode == "mock" else "0"
+
+    global engine  # noqa: PLW0603
+    engine = ValuationEngine()
+
     # Re-initialise the module-level store with the user-chosen DB path.
     global store  # noqa: PLW0603
     store = ValuationStore(Path(args.db))
 
-    logger.info("starting FastAPI server on http://%s:%d", args.host, args.port)
+    logger.info("starting FastAPI server on http://%s:%d mode=%s", args.host, args.port, args.mode)
     uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level.lower())
     store.close()
     return 0
@@ -413,117 +426,794 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VC Audit Tool</title>
 <style>
-  :root{--bg:#fafbfc;--card:#fff;--border:#e1e4e8;--text:#24292e;--muted:#586069;--accent:#0366d6;--green:#28a745;--red:#d73a49;--radius:6px}
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+  :root{
+    --sand:#f2efe5;
+    --ink:#142321;
+    --muted:#4d615e;
+    --card:#fffdf7;
+    --line:#d8d4c3;
+    --teal:#0d7a78;
+    --teal-dark:#0a5e5d;
+    --orange:#c85e28;
+    --error:#a11f14;
+    --ok:#1f7a3a;
+    --radius:14px;
+    --shadow:0 12px 30px rgba(20,35,33,.12);
+  }
   *,*::before,*::after{box-sizing:border-box}
-  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;display:flex;min-height:100vh}
-  a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
-  .sidebar{width:280px;background:var(--card);border-right:1px solid var(--border);padding:1rem;overflow-y:auto;flex-shrink:0}
-  .main{flex:1;padding:2rem;max-width:860px;margin:0 auto;overflow-y:auto}
-  .sidebar h2{font-size:.95rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 .75rem}
-  .run-item{padding:.55rem .5rem;border-radius:var(--radius);cursor:pointer;border:1px solid transparent;margin-bottom:.35rem;font-size:.85rem}
-  .run-item:hover{background:var(--bg);border-color:var(--border)}
-  .run-item .company{font-weight:600}.run-item .meta{color:var(--muted);font-size:.78rem}
-  h1{font-size:1.35rem;margin:0 0 1.25rem}
-  .form-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:1.5rem}
-  .form-row{display:flex;gap:1rem;margin-bottom:.85rem;flex-wrap:wrap}
-  .form-group{display:flex;flex-direction:column;flex:1;min-width:200px}
-  .form-group label{font-size:.82rem;font-weight:600;margin-bottom:.25rem;color:var(--muted)}
-  .form-group input,.form-group select{padding:.45rem .55rem;border:1px solid var(--border);border-radius:var(--radius);font-size:.9rem;background:var(--bg)}
-  .form-group input:focus,.form-group select:focus{outline:none;border-color:var(--accent)}
-  .btn{background:var(--accent);color:#fff;border:none;padding:.55rem 1.4rem;border-radius:var(--radius);font-size:.9rem;font-weight:600;cursor:pointer}
-  .btn:hover{opacity:.9}.btn:disabled{opacity:.5;cursor:not-allowed}
-  .report{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem}
-  .report h2{margin:0 0 .6rem;font-size:1.1rem}
-  .report-section{margin-bottom:1rem}
-  .report-section h3{font-size:.9rem;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin:0 0 .35rem}
-  .fair-value{font-size:1.7rem;font-weight:700;color:var(--green)}
-  .step,.assumption{padding:.3rem 0;font-size:.88rem;border-bottom:1px solid var(--bg)}
-  .citation{font-size:.84rem;color:var(--muted);padding:.2rem 0}
-  .badge{display:inline-block;padding:.15rem .5rem;border-radius:99px;font-size:.75rem;font-weight:600;margin-right:.3rem;margin-bottom:.3rem}
-  .badge-green{background:#dcffe4;color:#22863a}.badge-yellow{background:#fff5b1;color:#735c0f}.badge-red{background:#ffdce0;color:#cb2431}
-  .meta-row{font-size:.82rem;color:var(--muted);margin-top:.5rem}
-  .empty-state{color:var(--muted);text-align:center;padding:3rem 1rem;font-size:.95rem}
-  #error-banner{background:var(--red);color:#fff;padding:.6rem 1rem;border-radius:var(--radius);margin-bottom:1rem;display:none;font-size:.9rem}
+  body{
+    margin:0;
+    min-height:100vh;
+    font-family:'Space Grotesk', 'Avenir Next', 'Segoe UI', sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(1200px 600px at 5% -10%, #f7cfa8 0%, transparent 45%),
+      radial-gradient(1000px 500px at 95% 110%, #9ed4cd 0%, transparent 45%),
+      linear-gradient(160deg, #f8f4e7 0%, #efe6d0 100%);
+  }
+  .shell{
+    width:min(1240px, 96vw);
+    margin:24px auto;
+    display:grid;
+    grid-template-columns:300px 1fr;
+    gap:18px;
+  }
+  .panel{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+  }
+  .sidebar{padding:14px;max-height:calc(100vh - 48px);overflow:auto}
+  .title{
+    margin:0 0 4px;
+    font-size:1.32rem;
+    letter-spacing:.01em;
+  }
+  .sub{
+    margin:0 0 16px;
+    color:var(--muted);
+    font-size:.9rem;
+  }
+  .runs-title{
+    margin:0 0 10px;
+    font-size:.78rem;
+    text-transform:uppercase;
+    letter-spacing:.12em;
+    color:var(--muted);
+  }
+  .run-item{
+    border:1px solid var(--line);
+    border-radius:10px;
+    background:#fff;
+    padding:10px;
+    margin-bottom:8px;
+    cursor:pointer;
+    transition:transform .16s ease, border-color .16s ease;
+  }
+  .run-item:hover{transform:translateY(-1px);border-color:var(--teal)}
+  .run-item .company{font-weight:700;font-size:.92rem}
+  .run-item .meta{font-family:'IBM Plex Mono', monospace;color:var(--muted);font-size:.75rem}
+  .empty{
+    border:1px dashed var(--line);
+    border-radius:10px;
+    padding:16px;
+    text-align:center;
+    color:var(--muted);
+    font-size:.87rem;
+    background:#fff;
+  }
+  .main{padding:18px}
+  .top-row{
+    display:flex;
+    justify-content:space-between;
+    gap:16px;
+    flex-wrap:wrap;
+    align-items:flex-end;
+    margin-bottom:14px;
+  }
+  .kicker{
+    margin:0;
+    font-size:.78rem;
+    text-transform:uppercase;
+    letter-spacing:.14em;
+    color:var(--teal-dark);
+  }
+  .headline{
+    margin:2px 0 0;
+    font-size:1.72rem;
+    line-height:1.15;
+  }
+  .chip{
+    border:1px solid var(--line);
+    border-radius:999px;
+    padding:6px 10px;
+    background:#fff;
+    color:var(--muted);
+    font-size:.79rem;
+    font-family:'IBM Plex Mono', monospace;
+  }
+  .error{
+    display:none;
+    background:#ffd7d1;
+    border:1px solid #eaa69d;
+    color:var(--error);
+    border-radius:10px;
+    padding:10px 12px;
+    margin-bottom:12px;
+    font-size:.9rem;
+  }
+  .grid{
+    display:grid;
+    grid-template-columns:repeat(12,minmax(0,1fr));
+    gap:10px;
+    margin-bottom:12px;
+  }
+  .mode-card{
+    border:1px solid var(--line);
+    border-radius:12px;
+    background:#fff;
+    padding:12px;
+    margin-bottom:12px;
+  }
+  .mode-title{
+    margin:0 0 6px;
+    font-size:1rem;
+  }
+  .mode-copy{
+    margin:0 0 10px;
+    color:var(--muted);
+    font-size:.87rem;
+  }
+  .manual-mode{
+    border:1px solid var(--line);
+    border-radius:12px;
+    background:#fff;
+    padding:10px 12px;
+  }
+  .manual-mode summary{
+    cursor:pointer;
+    font-weight:700;
+    color:var(--teal-dark);
+    margin-bottom:10px;
+  }
+  .manual-mode[open] summary{
+    margin-bottom:12px;
+  }
+  .field{display:flex;flex-direction:column;gap:4px;grid-column:span 4}
+  .field.wide{grid-column:span 6}
+  .field.full{grid-column:span 12}
+  .field label{font-size:.77rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+  .field input,.field select,.field textarea{
+    border:1px solid var(--line);
+    background:#fff;
+    color:var(--ink);
+    border-radius:10px;
+    padding:9px 10px;
+    font-size:.9rem;
+    font-family:inherit;
+  }
+  .field textarea{min-height:68px;resize:vertical}
+  .field input:focus,.field select:focus,.field textarea:focus{outline:2px solid #94d5d4;outline-offset:1px}
+  .method-card{
+    display:none;
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:12px;
+    background:#fff;
+  }
+  .method-card.active{display:block}
+  .method-title{margin:0 0 6px;font-size:.98rem}
+  .actions{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-top:10px;
+  }
+  .btn{
+    border:none;
+    border-radius:11px;
+    padding:10px 14px;
+    font-size:.9rem;
+    font-weight:700;
+    cursor:pointer;
+    transition:transform .14s ease, filter .14s ease;
+  }
+  .btn:hover{transform:translateY(-1px);filter:brightness(1.03)}
+  .btn:disabled{opacity:.55;cursor:not-allowed;transform:none}
+  .btn-primary{background:var(--teal);color:#fff}
+  .btn-secondary{background:#e8f4f3;color:var(--teal-dark)}
+  .btn-warm{background:#f5e3d9;color:#8f3f1a}
+  .source-badge{
+    display:inline-flex;
+    align-items:center;
+    padding:2px 8px;
+    border-radius:999px;
+    font-size:.74rem;
+    font-weight:700;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    background:#e8f4f3;
+    color:#0e5857;
+    margin-left:8px;
+  }
+  .report{
+    margin-top:14px;
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:14px;
+    background:#fff;
+  }
+  .report h2{margin:0 0 8px;font-size:1.1rem}
+  .value{
+    font-size:1.95rem;
+    color:var(--ok);
+    font-weight:700;
+    margin:8px 0 14px;
+  }
+  .mono{font-family:'IBM Plex Mono', monospace}
+  .section{margin:12px 0}
+  .section h3{
+    margin:0 0 5px;
+    font-size:.78rem;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    color:var(--muted);
+  }
+  .item{
+    border-top:1px solid #efeee8;
+    padding:6px 0;
+    font-size:.88rem;
+  }
+  .pills{display:flex;flex-wrap:wrap;gap:6px}
+  .pill{
+    border-radius:999px;
+    font-size:.75rem;
+    padding:3px 8px;
+    background:#dff4f3;
+    color:#0e5857;
+  }
+  pre{
+    margin:0;
+    border:1px solid var(--line);
+    border-radius:10px;
+    background:#f8f7f1;
+    padding:10px;
+    font-size:.78rem;
+    overflow:auto;
+  }
+  @media (max-width:1040px){
+    .shell{grid-template-columns:1fr}
+    .sidebar{max-height:none}
+  }
+  @media (max-width:760px){
+    .field,.field.wide{grid-column:span 12}
+    .headline{font-size:1.4rem}
+  }
 </style>
 </head>
 <body>
-<aside class="sidebar"><h2>Past Runs</h2><div id="runs-list"><div class="empty-state">No runs yet</div></div></aside>
-<div class="main">
-  <h1>VC Audit Tool</h1>
-  <div id="error-banner"></div>
-  <div class="form-card">
-    <div class="form-row">
-      <div class="form-group"><label>Company Name</label><input id="company_name" value="Basis AI"></div>
-      <div class="form-group"><label>Methodology</label>
-        <select id="methodology">
-          <option value="last_round_market_adjusted">Last Round (Market Adjusted)</option>
-          <option value="comparable_companies">Comparable Companies</option>
-        </select>
+  <div class="shell">
+    <aside class="panel sidebar">
+      <h1 class="title">VC Audit Tool</h1>
+      <p class="sub">Auditable valuation workflows with live or mock sources.</p>
+      <div class="runs-title">Saved Runs (/api/value)</div>
+      <div id="runs-list"><div class="empty">No runs yet.</div></div>
+    </aside>
+
+    <main class="panel main">
+      <div class="top-row">
+        <div>
+          <p class="kicker">Valuation Workbench</p>
+          <h2 class="headline">Research-first valuation with optional advanced manual inputs</h2>
+        </div>
+        <span class="chip">Endpoints: /research, /reconcile, /api/value</span>
       </div>
-      <div class="form-group"><label>As-of Date</label><input id="as_of_date" type="date" value="2026-02-18"></div>
-    </div>
-    <div id="inputs-last_round_market_adjusted">
-      <div class="form-row">
-        <div class="form-group"><label>Last Post-Money Valuation ($)</label><input id="lr_valuation" type="number" value="100000000"></div>
-        <div class="form-group"><label>Last Round Date</label><input id="lr_round_date" type="date" value="2024-06-30"></div>
-        <div class="form-group"><label>Public Index</label><select id="lr_index"><option value="NASDAQ_COMPOSITE">NASDAQ Composite</option><option value="RUSSELL_2000">Russell 2000</option></select></div>
+
+      <div id="error-banner" class="error"></div>
+
+      <section class="mode-card" id="research-mode">
+        <h3 class="mode-title">Research Mode (Default)</h3>
+        <p class="mode-copy">Methodology is selected automatically unless you explicitly override it.</p>
+        <div class="grid">
+          <div class="field">
+            <label for="company_name">Company Name</label>
+            <input id="company_name" value="Basis AI">
+          </div>
+          <div class="field">
+            <label for="as_of_date">As-of Date (optional)</label>
+            <input id="as_of_date" type="date">
+          </div>
+          <div class="field wide">
+            <label for="description_hint">Description Hint (recommended)</label>
+            <input id="description_hint" placeholder="AI-native compliance software for enterprise fintech teams">
+          </div>
+          <div class="field full">
+            <label><input id="research_override_enabled" type="checkbox"> Override methodology (advanced)</label>
+            <select id="research_methodology" disabled>
+              <option value="">Auto-select</option>
+              <option value="last_round_market_adjusted">last_round_market_adjusted</option>
+              <option value="comparable_companies">comparable_companies</option>
+              <option value="last_round_multiple_ratchet">last_round_multiple_ratchet</option>
+            </select>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" id="run-research">Run /research</button>
+          <button class="btn btn-warm" id="run-reconcile">Run /reconcile</button>
+        </div>
+      </section>
+
+      <details class="manual-mode" id="manual-mode">
+        <summary>Advanced Manual Mode (/api/value)</summary>
+        <p class="mode-copy">You must provide methodology-specific structured inputs in manual mode (including sector for manual comparable_companies requests).</p>
+
+        <div class="grid">
+          <div class="field full">
+            <label for="methodology">Manual Methodology</label>
+            <select id="methodology">
+              <option value="last_round_market_adjusted">last_round_market_adjusted</option>
+              <option value="comparable_companies">comparable_companies</option>
+              <option value="last_round_multiple_ratchet">last_round_multiple_ratchet</option>
+              <option value="scorecard">scorecard</option>
+              <option value="berkus">berkus</option>
+            </select>
+          </div>
+        </div>
+
+      <section id="inputs-last_round_market_adjusted" class="method-card active">
+        <h3 class="method-title">Last Round Market Adjusted</h3>
+        <div class="grid">
+          <div class="field">
+            <label>Last Post-Money ($)</label>
+            <input id="lr_valuation" type="number" value="100000000">
+          </div>
+          <div class="field">
+            <label>Last Round Date</label>
+            <input id="lr_round_date" type="date">
+          </div>
+          <div class="field">
+            <label>Public Index</label>
+            <select id="lr_index">
+              <option value="NASDAQ_COMPOSITE">NASDAQ_COMPOSITE</option>
+              <option value="RUSSELL_2000">RUSSELL_2000</option>
+              <option value="SP500">SP500</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section id="inputs-comparable_companies" class="method-card">
+        <h3 class="method-title">Comparable Companies</h3>
+        <div class="grid">
+          <div class="field">
+            <label>Sector</label>
+            <select id="cc_sector">
+              <option value="enterprise_software">enterprise_software</option>
+              <option value="cybersecurity">cybersecurity</option>
+              <option value="infrastructure_software">infrastructure_software</option>
+              <option value="semiconductors">semiconductors</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>LTM Revenue ($)</label>
+            <input id="cc_revenue" type="number" value="10000000">
+          </div>
+          <div class="field">
+            <label>Statistic</label>
+            <select id="cc_statistic">
+              <option value="median">median</option>
+              <option value="mean">mean</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Private Discount (%)</label>
+            <input id="cc_discount" type="number" value="20" min="0" max="100">
+          </div>
+          <div class="field full">
+            <label>Target Description (optional)</label>
+            <textarea id="cc_target_description" placeholder="Cloud-native workflow automation platform for enterprise legal ops teams"></textarea>
+          </div>
+        </div>
+      </section>
+
+      <section id="inputs-last_round_multiple_ratchet" class="method-card">
+        <h3 class="method-title">Last Round Multiple Ratchet</h3>
+        <div class="grid">
+          <div class="field">
+            <label>Last Post-Money ($)</label>
+            <input id="mr_post_money" type="number" value="100000000">
+          </div>
+          <div class="field">
+            <label>Revenue at Last Round ($)</label>
+            <input id="mr_revenue_last" type="number" value="10000000">
+          </div>
+          <div class="field">
+            <label>Current Revenue ($)</label>
+            <input id="mr_revenue_current" type="number" value="12000000">
+          </div>
+          <div class="field">
+            <label>Sector</label>
+            <select id="mr_sector">
+              <option value="enterprise_software">enterprise_software</option>
+              <option value="cybersecurity">cybersecurity</option>
+              <option value="infrastructure_software">infrastructure_software</option>
+              <option value="semiconductors">semiconductors</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Statistic</label>
+            <select id="mr_statistic">
+              <option value="median">median</option>
+              <option value="mean">mean</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Private Discount (%)</label>
+            <input id="mr_discount" type="number" value="20" min="0" max="100">
+          </div>
+          <div class="field full">
+            <label>Target Description (optional)</label>
+            <textarea id="mr_target_description" placeholder="B2B platform for security posture automation in regulated industries"></textarea>
+          </div>
+        </div>
+      </section>
+
+      <section id="inputs-scorecard" class="method-card">
+        <h3 class="method-title">Scorecard</h3>
+        <div class="grid">
+          <div class="field">
+            <label>Regional Median Pre-Money ($)</label>
+            <input id="sc_median" type="number" value="6000000">
+          </div>
+          <div class="field"><label>strength_of_team</label><input id="sc_team" type="number" value="1.2" step="0.1" min="0" max="2"></div>
+          <div class="field"><label>size_of_opportunity</label><input id="sc_opp" type="number" value="1.1" step="0.1" min="0" max="2"></div>
+          <div class="field"><label>product_technology</label><input id="sc_prod" type="number" value="1.0" step="0.1" min="0" max="2"></div>
+          <div class="field"><label>competitive_environment</label><input id="sc_comp" type="number" value="0.9" step="0.1" min="0" max="2"></div>
+          <div class="field"><label>marketing_sales_channels</label><input id="sc_mkt" type="number" value="1.0" step="0.1" min="0" max="2"></div>
+          <div class="field"><label>need_for_additional_investment</label><input id="sc_need" type="number" value="1.0" step="0.1" min="0" max="2"></div>
+          <div class="field"><label>other</label><input id="sc_other" type="number" value="1.0" step="0.1" min="0" max="2"></div>
+        </div>
+      </section>
+
+      <section id="inputs-berkus" class="method-card">
+        <h3 class="method-title">Berkus</h3>
+        <div class="grid">
+          <div class="field">
+            <label>Max Pre-Money ($)</label>
+            <input id="bk_max" type="number" value="2500000">
+          </div>
+          <div class="field"><label>sound_idea</label><input id="bk_sound" type="number" value="1" step="0.1" min="0" max="1"></div>
+          <div class="field"><label>prototype</label><input id="bk_proto" type="number" value="0.8" step="0.1" min="0" max="1"></div>
+          <div class="field"><label>quality_management</label><input id="bk_mgmt" type="number" value="1" step="0.1" min="0" max="1"></div>
+          <div class="field"><label>strategic_relationships</label><input id="bk_rel" type="number" value="0.6" step="0.1" min="0" max="1"></div>
+          <div class="field"><label>product_rollout</label><input id="bk_rollout" type="number" value="0.5" step="0.1" min="0" max="1"></div>
+        </div>
+      </section>
+
+      <div class="actions">
+        <button class="btn btn-secondary" id="run-value">Run manual /api/value</button>
       </div>
-    </div>
-    <div id="inputs-comparable_companies" style="display:none">
-      <div class="form-row">
-        <div class="form-group"><label>Sector</label><select id="cc_sector"><option value="enterprise_software">Enterprise Software</option><option value="cybersecurity">Cybersecurity</option><option value="infrastructure_software">Infrastructure Software</option></select></div>
-        <div class="form-group"><label>LTM Revenue ($)</label><input id="cc_revenue" type="number" value="10000000"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Statistic</label><select id="cc_statistic"><option value="median">Median</option><option value="mean">Mean</option></select></div>
-        <div class="form-group"><label>Private Company Discount (%)</label><input id="cc_discount" type="number" value="20" min="0" max="100"></div>
-      </div>
-    </div>
-    <button class="btn" id="run-btn">Run Valuation</button>
+      </details>
+
+      <div id="report"></div>
+    </main>
   </div>
-  <div id="report"></div>
-</div>
+
 <script>
 (function(){
-  var $=function(s){return document.querySelector(s)};
-  $('#methodology').addEventListener('change',function(){
-    document.querySelectorAll('[id^="inputs-"]').forEach(function(el){el.style.display='none'});
-    var t=document.getElementById('inputs-'+this.value);if(t)t.style.display='';
-  });
-  function buildPayload(){
-    var m=$('#methodology').value;
-    var b={company_name:$('#company_name').value,methodology:m,as_of_date:$('#as_of_date').value,inputs:{}};
-    if(m==='last_round_market_adjusted'){b.inputs={last_post_money_valuation:Number($('#lr_valuation').value),last_round_date:$('#lr_round_date').value,public_index:$('#lr_index').value}}
-    else{b.inputs={sector:$('#cc_sector').value,revenue_ltm:Number($('#cc_revenue').value),statistic:$('#cc_statistic').value,private_company_discount_pct:Number($('#cc_discount').value)}}
-    return b;
+  var $ = function(sel){ return document.querySelector(sel); };
+  var methodSelect = $('#methodology');
+  var researchOverrideEnabled = $('#research_override_enabled');
+  var researchMethodology = $('#research_methodology');
+  var report = $('#report');
+  var errorBanner = $('#error-banner');
+
+  function todayISO(){
+    var d = new Date();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return d.getFullYear() + '-' + m + '-' + day;
   }
-  function renderReport(env){
-    var r=env.valuation_result,meta=env.audit_metadata,fv=r.estimated_fair_value;
-    var fmt=function(n){return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})};
-    var badges='';
-    if(r.confidence_indicators){Object.entries(r.confidence_indicators).forEach(function(e){var k=e[0],v=e[1],cls='badge-green',s=String(v).toLowerCase();if(s==='high'||s.indexOf('stale')>=0)cls='badge-red';else if(s==='medium'||s==='moderate')cls='badge-yellow';if(typeof v==='number'&&v>365)cls='badge-red';else if(typeof v==='number'&&v>180)cls='badge-yellow';badges+='<span class="badge '+cls+'">'+k.replace(/_/g,' ')+': '+v+'</span> '})}
-    var h='<div class="report"><h2>'+r.company_name+' - '+r.methodology.replace(/_/g,' ')+'</h2>';
-    h+='<div class="report-section"><h3>Fair Value Estimate</h3><div class="fair-value">'+fmt(fv.amount)+' '+fv.currency+'</div></div>';
-    if(badges)h+='<div class="report-section"><h3>Confidence Indicators</h3>'+badges+'</div>';
-    h+='<div class="report-section"><h3>Derivation Steps</h3>';r.derivation_steps.forEach(function(s,i){h+='<div class="step">'+(i+1)+'. '+s+'</div>'});h+='</div>';
-    h+='<div class="report-section"><h3>Key Assumptions</h3>';r.assumptions.forEach(function(a){h+='<div class="assumption">- '+a+'</div>'});h+='</div>';
-    h+='<div class="report-section"><h3>Citations</h3>';r.citations.forEach(function(c){h+='<div class="citation"><strong>'+c.label+'</strong>: '+c.detail;if(c.dataset_version)h+=' <span class="badge badge-green">v: '+c.dataset_version+'</span>';if(c.resolved_data_points)h+='<br><small>Data: '+c.resolved_data_points.join(', ')+'</small>';h+='</div>'});h+='</div>';
-    h+='<div class="meta-row">Request ID: '+meta.request_id+' | Generated: '+meta.generated_at_utc+' | Engine v'+meta.engine_version+'</div></div>';
-    return h;
+
+  function setDefaults(){
+    var today = todayISO();
+    $('#as_of_date').value = today;
+    $('#lr_round_date').value = '2024-06-30';
+    researchOverrideEnabled.checked = false;
+    researchMethodology.value = '';
+    researchMethodology.disabled = true;
   }
-  $('#run-btn').addEventListener('click',async function(){
-    var btn=this;btn.disabled=true;btn.textContent='Running...';$('#error-banner').style.display='none';
-    try{var res=await fetch('/api/value',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(buildPayload())});var data=await res.json();if(!res.ok)throw new Error(data.error||'Unknown error');$('#report').innerHTML=renderReport(data);loadRuns()}
-    catch(e){$('#error-banner').textContent=e.message;$('#error-banner').style.display=''}
-    finally{btn.disabled=false;btn.textContent='Run Valuation'}
+
+  function setLoading(btn, isLoading, text){
+    btn.disabled = isLoading;
+    btn.textContent = text;
+  }
+
+  function showError(msg){
+    errorBanner.textContent = msg;
+    errorBanner.style.display = 'block';
+  }
+
+  function clearError(){
+    errorBanner.style.display = 'none';
+    errorBanner.textContent = '';
+  }
+
+  function toggleMethodCard(){
+    var selected = methodSelect.value;
+    document.querySelectorAll('.method-card').forEach(function(el){
+      el.classList.toggle('active', el.id === 'inputs-' + selected);
+    });
+  }
+
+  function toggleResearchOverride(){
+    researchMethodology.disabled = !researchOverrideEnabled.checked;
+    if (!researchOverrideEnabled.checked){
+      researchMethodology.value = '';
+    }
+  }
+
+  function val(id){ return $(id).value; }
+  function num(id){ return Number($(id).value); }
+
+  function buildValuePayload(){
+    var m = val('#methodology');
+    var payload = {
+      company_name: val('#company_name'),
+      methodology: m,
+      as_of_date: val('#as_of_date'),
+      inputs: {}
+    };
+
+    if (m === 'last_round_market_adjusted'){
+      payload.inputs = {
+        last_post_money_valuation: num('#lr_valuation'),
+        last_round_date: val('#lr_round_date'),
+        public_index: val('#lr_index')
+      };
+      return payload;
+    }
+
+    if (m === 'comparable_companies'){
+      payload.inputs = {
+        sector: val('#cc_sector'),
+        revenue_ltm: num('#cc_revenue'),
+        statistic: val('#cc_statistic'),
+        private_company_discount_pct: num('#cc_discount')
+      };
+      if (val('#cc_target_description').trim()){
+        payload.inputs.target_description = val('#cc_target_description').trim();
+      }
+      return payload;
+    }
+
+    if (m === 'last_round_multiple_ratchet'){
+      payload.inputs = {
+        last_post_money_valuation: num('#mr_post_money'),
+        revenue_at_last_round: num('#mr_revenue_last'),
+        current_revenue: num('#mr_revenue_current'),
+        sector: val('#mr_sector'),
+        statistic: val('#mr_statistic'),
+        private_company_discount_pct: num('#mr_discount')
+      };
+      if (val('#mr_target_description').trim()){
+        payload.inputs.target_description = val('#mr_target_description').trim();
+      }
+      return payload;
+    }
+
+    if (m === 'scorecard'){
+      payload.inputs = {
+        regional_median_pre_money: num('#sc_median'),
+        factors: {
+          strength_of_team: num('#sc_team'),
+          size_of_opportunity: num('#sc_opp'),
+          product_technology: num('#sc_prod'),
+          competitive_environment: num('#sc_comp'),
+          marketing_sales_channels: num('#sc_mkt'),
+          need_for_additional_investment: num('#sc_need'),
+          other: num('#sc_other')
+        }
+      };
+      return payload;
+    }
+
+    payload.inputs = {
+      max_pre_money_valuation: num('#bk_max'),
+      factors: {
+        sound_idea: num('#bk_sound'),
+        prototype: num('#bk_proto'),
+        quality_management: num('#bk_mgmt'),
+        strategic_relationships: num('#bk_rel'),
+        product_rollout: num('#bk_rollout')
+      }
+    };
+    return payload;
+  }
+
+  function fmtMoney(n){
+    return '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  }
+
+  function renderValuation(env, sourceLabel){
+    var r = env.valuation_result || {};
+    var meta = env.audit_metadata || {};
+    var fv = (r.estimated_fair_value || {});
+    var html = '<div class="report">';
+    html += '<h2>' + (r.company_name || 'Unknown') + ' - ' + String(r.methodology || '').replaceAll('_', ' ');
+    html += '<span class="source-badge">' + (sourceLabel || 'Response') + '</span></h2>';
+    if (typeof fv.amount !== 'undefined'){
+      html += '<div class="value">' + fmtMoney(fv.amount) + ' ' + (fv.currency || 'USD') + '</div>';
+    }
+    if (r.confidence_indicators){
+      html += '<div class="section"><h3>Confidence Indicators</h3><div class="pills">';
+      Object.entries(r.confidence_indicators).forEach(function(entry){
+        html += '<span class="pill">' + entry[0] + ': ' + entry[1] + '</span>';
+      });
+      html += '</div></div>';
+    }
+    if (Array.isArray(r.derivation_steps) && r.derivation_steps.length){
+      html += '<div class="section"><h3>Derivation Steps</h3>';
+      r.derivation_steps.forEach(function(step, idx){
+        html += '<div class="item">' + (idx + 1) + '. ' + step + '</div>';
+      });
+      html += '</div>';
+    }
+    if (Array.isArray(r.assumptions) && r.assumptions.length){
+      html += '<div class="section"><h3>Assumptions</h3>';
+      r.assumptions.forEach(function(item){
+        html += '<div class="item">' + item + '</div>';
+      });
+      html += '</div>';
+    }
+    if (Array.isArray(r.citations) && r.citations.length){
+      html += '<div class="section"><h3>Citations</h3>';
+      r.citations.forEach(function(c){
+        html += '<div class="item"><strong>' + (c.label || '') + '</strong>: ' + (c.detail || '');
+        if (c.dataset_version){ html += '<div class="mono">v=' + c.dataset_version + '</div>'; }
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+    if (meta.request_id){
+      html += '<div class="section mono">request_id=' + meta.request_id + '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function renderReconciled(env, sourceLabel){
+    var cv = env.concluded_value || {};
+    var recon = env.reconciliation || {};
+    var html = '<div class="report">';
+    html += '<h2>Reconciled Valuation<span class="source-badge">' + (sourceLabel || 'Response') + '</span></h2>';
+    if (typeof cv.point_estimate !== 'undefined'){
+      html += '<div class="value">' + fmtMoney(cv.point_estimate) + ' ' + (cv.currency || 'USD') + '</div>';
+      html += '<div class="mono">Range: ' + fmtMoney(cv.range_low) + ' to ' + fmtMoney(cv.range_high) + '</div>';
+    }
+    if (Array.isArray(recon.methodology_weights) && recon.methodology_weights.length){
+      html += '<div class="section"><h3>Methodology Weights</h3>';
+      recon.methodology_weights.forEach(function(w){
+        html += '<div class="item">' + w.methodology + ' -> ' + w.weight + '</div>';
+      });
+      html += '</div>';
+    }
+    if (recon.reconciliation_rationale){
+      html += '<div class="section"><h3>Rationale</h3><div class="item">' + recon.reconciliation_rationale + '</div></div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function renderEnvelope(env, sourceLabel){
+    if (env.valuation_result){ return renderValuation(env, sourceLabel); }
+    if (env.concluded_value){ return renderReconciled(env, sourceLabel); }
+    return '<div class="report"><h2>Response</h2><pre>' + JSON.stringify(env, null, 2) + '</pre></div>';
+  }
+
+  async function postJSON(url, payload){
+    var resp = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    var data = await resp.json();
+    if (!resp.ok){
+      throw new Error(data.error || ('Request failed (' + resp.status + ')'));
+    }
+    return data;
+  }
+
+  function buildResearchPayload(includeMethodology){
+    var payload = {
+      company_name: val('#company_name'),
+      as_of_date: val('#as_of_date'),
+      description_hint: val('#description_hint')
+    };
+    if (includeMethodology && researchOverrideEnabled.checked && val('#research_methodology')){
+      payload.methodology = val('#research_methodology');
+    }
+    return payload;
+  }
+
+  $('#run-value').addEventListener('click', async function(){
+    clearError();
+    var btn = this;
+    setLoading(btn, true, 'Running /api/value...');
+    try{
+      var data = await postJSON('/api/value', buildValuePayload());
+      report.innerHTML = renderEnvelope(data, 'Manual');
+      await loadRuns();
+    }catch(err){
+      showError(err.message || String(err));
+    }finally{
+      setLoading(btn, false, 'Run manual /api/value');
+    }
   });
+
+  $('#run-research').addEventListener('click', async function(){
+    clearError();
+    var btn = this;
+    setLoading(btn, true, 'Running /research...');
+    try{
+      var data = await postJSON('/research', buildResearchPayload(true));
+      report.innerHTML = renderEnvelope(data, 'Research');
+    }catch(err){
+      showError(err.message || String(err));
+    }finally{
+      setLoading(btn, false, 'Run /research');
+    }
+  });
+
+  $('#run-reconcile').addEventListener('click', async function(){
+    clearError();
+    var btn = this;
+    setLoading(btn, true, 'Running /reconcile...');
+    try{
+      var data = await postJSON('/reconcile', buildResearchPayload(false));
+      report.innerHTML = renderEnvelope(data, 'Reconcile');
+    }catch(err){
+      showError(err.message || String(err));
+    }finally{
+      setLoading(btn, false, 'Run /reconcile');
+    }
+  });
+
   async function loadRuns(){
-    try{var res=await fetch('/api/runs');var runs=await res.json();var list=$('#runs-list');
-    if(!runs.length){list.innerHTML='<div class="empty-state">No runs yet</div>';return}
-    list.innerHTML=runs.map(function(r){return '<div class="run-item" data-id="'+r.request_id+'"><div class="company">'+r.company_name+'</div><div class="meta">'+r.methodology.replace(/_/g,' ')+' | '+r.as_of_date+'</div><div class="meta">$'+Number(r.fair_value).toLocaleString()+'</div></div>'}).join('');
-    list.querySelectorAll('.run-item').forEach(function(el){el.addEventListener('click',async function(){var res=await fetch('/api/runs/'+el.dataset.id);if(res.ok){var data=await res.json();$('#report').innerHTML=renderReport(data)}})})}
-    catch(e){}
+    try{
+      var res = await fetch('/api/runs');
+      if (!res.ok){ return; }
+      var runs = await res.json();
+      var list = $('#runs-list');
+      if (!Array.isArray(runs) || runs.length === 0){
+        list.innerHTML = '<div class="empty">No runs yet.</div>';
+        return;
+      }
+      list.innerHTML = runs.map(function(r){
+        return '<div class="run-item" data-id="' + r.request_id + '">' +
+          '<div class="company">' + r.company_name + '</div>' +
+          '<div class="meta">' + String(r.methodology || '').replaceAll('_', ' ') + ' | ' + r.as_of_date + '</div>' +
+          '<div class="meta">' + fmtMoney(r.fair_value) + '</div>' +
+        '</div>';
+      }).join('');
+      list.querySelectorAll('.run-item').forEach(function(el){
+        el.addEventListener('click', async function(){
+          var response = await fetch('/api/runs/' + el.dataset.id);
+          if (!response.ok){ return; }
+          var data = await response.json();
+          report.innerHTML = renderEnvelope(data, 'Manual');
+        });
+      });
+    }catch(_err){}
   }
+
+  methodSelect.addEventListener('change', toggleMethodCard);
+  researchOverrideEnabled.addEventListener('change', toggleResearchOverride);
+  setDefaults();
+  toggleResearchOverride();
+  toggleMethodCard();
   loadRuns();
 })();
 </script>

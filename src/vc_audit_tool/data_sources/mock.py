@@ -141,7 +141,12 @@ class MockComparableCompanySource:
         ComparableCompany("ESTC", "Elastic", "infrastructure_software", Decimal("5.3")),
     )
 
-    def list_by_sector(self, sector: str) -> list[ComparableCompany]:
+    def list_by_sector(
+        self, sector: str, *, target_description: str | None = None
+    ) -> list[ComparableCompany]:
+        # ``target_description`` is accepted for Protocol compatibility
+        # with live sources; mock selection remains sector-only.
+        _ = target_description
         comps = [comp for comp in self._COMPS if comp.sector == sector]
         if not comps:
             raise DataSourceError(f"No comps configured for sector '{sector}'.")

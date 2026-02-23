@@ -25,7 +25,9 @@ class MarketIndexSource(Protocol):
 class ComparableCompanySource(Protocol):
     """Contract for any comparable-company data provider."""
 
-    def list_by_sector(self, sector: str) -> list[ComparableCompany]: ...
+    def list_by_sector(
+        self, sector: str, *, target_description: str | None = None
+    ) -> list[ComparableCompany]: ...
 
     def list_by_tickers(self, tickers: Iterable[str]) -> list[ComparableCompany]: ...
 

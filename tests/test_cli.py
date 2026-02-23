@@ -93,6 +93,12 @@ class CLITests(unittest.TestCase):
         result = _run_cli()
         self.assertNotEqual(result.returncode, 0)
 
+    def test_cache_clear_invalid_duration_returns_clean_error(self) -> None:
+        result = _run_cli("cache", "clear", "--older-than", "bad")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Invalid duration", result.stdout)
+        self.assertNotIn("Traceback", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

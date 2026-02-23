@@ -77,7 +77,9 @@ class EdgarYFinanceComparableCompanySource:
 
     # ── ComparableCompanySource Protocol methods ──
 
-    def list_by_sector(self, sector: str) -> list[ComparableCompany]:
+    def list_by_sector(
+        self, sector: str, *, target_description: str | None = None
+    ) -> list[ComparableCompany]:
         """Return top-k comparable companies for *sector*, ranked by
         embedding similarity if a target description is set.
         """
@@ -125,7 +127,12 @@ class EdgarYFinanceComparableCompanySource:
         )
 
         # Step 3: Rank by embedding similarity (if target description provided)
-        if self._target_description:
+        effective_target_description = (
+            target_description
+            if target_description is not None
+            else self._target_description
+        )
+        if effective_target_description:
             candidates = [
                 {
                     "ticker": m.ticker,
@@ -134,7 +141,9 @@ class EdgarYFinanceComparableCompanySource:
                 }
                 for m in valid_metrics
             ]
-            ranked = self._ranker.rank(self._target_description, candidates, top_k=self._top_k)
+            ranked = self._ranker.rank(
+                effective_target_description, candidates, top_k=self._top_k
+            )
             # Reorder valid_metrics to match ranking
             metrics_by_ticker = {m.ticker: m for m in valid_metrics}
             ordered_metrics = [

@@ -55,6 +55,7 @@ def _make_cache_file(
 def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(SRC_DIR)
+    env["VC_AUDIT_MOCK"] = "1"  # keep CLI subprocess tests deterministic/offline
     return subprocess.run(
         [sys.executable, "-m", "vc_audit_tool.cli", *args],
         capture_output=True,

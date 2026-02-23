@@ -6,8 +6,8 @@ The tool can operate in two modes:
 
 | Mode | Data Source | Use case |
 |------|------------|----------|
-| **Mock** (default) | Built-in curated datasets | Development, demos, tests |
-| **Live** | SEC EDGAR + Yahoo Finance + sentence-transformer embeddings | Real valuations of actual private companies |
+| **Live** (default) | SEC EDGAR + Yahoo Finance + sentence-transformer embeddings | Real valuations of actual private companies |
+| **Mock** (`VC_AUDIT_MOCK=1`) | Built-in curated datasets | Development, demos, tests |
 
 > See **[ARCHITECTURE.md](ARCHITECTURE.md)** for detailed system design, data-flow diagrams, and component descriptions.
 
@@ -49,6 +49,8 @@ python -m vc_audit_tool.cli confidence <request-id>
 
 ```bash
 python -m vc_audit_tool.server          # starts on http://127.0.0.1:8080
+python -m vc_audit_tool.server --mode mock   # force mock sources
+python -m vc_audit_tool.server --mode live   # explicit live mode (default)
 
 # In another terminal:
 curl http://127.0.0.1:8080/health       # → {"status":"ok"}
@@ -68,6 +70,14 @@ curl -X POST http://127.0.0.1:8080/reconcile \
 open http://127.0.0.1:8080              # Web UI with run history
 open http://127.0.0.1:8080/docs         # Auto-generated OpenAPI docs
 ```
+
+The web UI is **research-first** by default (`/research` primary action). Manual `/api/value`
+is available under **Advanced Manual Mode** in the UI.
+
+UI flow:
+- **Research Mode (default)**: `company_name`, optional `as_of_date`, optional `description_hint`, optional methodology override.
+- **Reconcile action**: runs `POST /reconcile` from the same research inputs.
+- **Advanced Manual Mode**: runs `POST /api/value` with full structured inputs; manual `comparable_companies` still requires `sector`.
 
 ### Using Live Data (Real Valuations)
 
@@ -173,7 +183,8 @@ Applies a peer-set EV/Revenue multiple to LTM revenue, then discounts for illiqu
     "sector": "enterprise_software",
     "revenue_ltm": 10000000,
     "statistic": "median",
-    "private_company_discount_pct": 20
+    "private_company_discount_pct": 20,
+    "target_description": "Cloud security platform for enterprise SOC teams"
   }
 }
 ```
@@ -187,6 +198,8 @@ You can also pass explicit tickers instead of a sector:
   "private_company_discount_pct": 25
 }
 ```
+
+`target_description` is optional and only used for sector-based peer selection.
 
 ### 2. Last-Round Market-Adjusted (`last_round_market_adjusted`)
 
@@ -271,7 +284,7 @@ The **Berkus Method** assigns up to a maximum value across 5 risk dimensions (so
   "as_of_date": "2026-03-01",
   "inputs": {
     "max_pre_money_valuation": 2500000,
-    "berkus_factors": {
+    "factors": {
       "sound_idea": true,
       "prototype": 0.7,
       "quality_management": true,
@@ -281,6 +294,9 @@ The **Berkus Method** assigns up to a maximum value across 5 risk dimensions (so
   }
 }
 ```
+
+Backward compatibility: legacy aliases (`working_prototype`, `product_rollout_or_sales`) and
+`berkus_factors` are still accepted.
 
 ---
 
@@ -569,6 +585,12 @@ pip install -e ".[llm]"    # installs langchain-google-genai, langchain-anthropi
 
 **Yes — fully automated or with manual input.**
 
+| Endpoint | Primary Use | Methodology Selection | Sector Input |
+|----------|-------------|-----------------------|--------------|
+| `POST /research` | One-call valuation from company name | Auto-selected by research agent when `methodology` is omitted | Inferred by agent (no manual sector field needed in research UI) |
+| `POST /reconcile` | Multi-method reconciled valuation | Selected by reconciliation selector/rules | Inferred from assembled research data |
+| `POST /value` or `POST /api/value` | Manual structured valuation | Explicitly provided by caller | Required for manual `comparable_companies` payloads |
+
 **Automated mode** (`POST /research`): provide only a company name. The agent searches SEC filings, the web, and government contracts to assemble inputs, then runs the valuation engine.
 
 **Reconciled mode** (`POST /reconcile`): provide a company name + optional description. The system researches the company, profiles its stage, selects applicable methodologies, runs all of them, and produces a single weighted-average valuation with divergence analysis.
@@ -576,7 +598,7 @@ pip install -e ".[llm]"    # installs langchain-google-genai, langchain-anthropi
 **Manual mode** (`POST /value` or CLI): provide structured inputs directly. The engine can produce real valuations for private companies using live public market data. You need:
 
 1. **Revenue (LTM)** — the target company's last-twelve-months revenue
-2. **Sector** — maps to SIC codes for finding public peers
+2. **Sector** — required for manual `comparable_companies` payloads
 3. **Target description** (recommended) — a 1–2 sentence description for semantic comp matching
 
 The system will then automatically:

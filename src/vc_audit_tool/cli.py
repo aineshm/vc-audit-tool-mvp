@@ -112,7 +112,11 @@ def _cmd_cache_clear(args: argparse.Namespace) -> int:
 
     older_than: timedelta | None = None
     if not args.all:
-        older_than = _parse_duration(args.older_than)
+        try:
+            older_than = _parse_duration(args.older_than)
+        except argparse.ArgumentTypeError as exc:
+            print(f"Error: {exc}")
+            return 1
 
     removed = clear_cache(older_than=older_than)
     if not removed:

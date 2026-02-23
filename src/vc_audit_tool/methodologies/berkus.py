@@ -7,6 +7,7 @@ Boolean ``True`` = full value, ``False`` = zero, float [0.0, 1.0] = partial.
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from typing import Any
 
@@ -16,13 +17,56 @@ from vc_audit_tool.validation import parse_decimal, require_field
 
 from .base import MethodologyContext, ValuationMethodology
 
+logger = logging.getLogger(__name__)
+
 _BERKUS_FACTORS: tuple[str, ...] = (
     "sound_idea",
-    "working_prototype",
+    "prototype",
     "quality_management",
     "strategic_relationships",
-    "product_rollout_or_sales",
+    "product_rollout",
 )
+
+_LEGACY_BERKUS_ALIASES: dict[str, str] = {
+    "working_prototype": "prototype",
+    "product_rollout_or_sales": "product_rollout",
+}
+
+
+def _resolve_berkus_factors(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Resolve factor payload from ``factors`` or ``berkus_factors`` and normalize keys."""
+    factors_obj = inputs.get("factors")
+    if factors_obj is None:
+        factors_obj = inputs.get("berkus_factors")
+    if factors_obj is None:
+        raise ValidationError("Missing required field: 'factors'.")
+    if not isinstance(factors_obj, dict):
+        raise ValidationError(
+            f"Field 'factors' must be of type dict, received {type(factors_obj).__name__}."
+        )
+
+    normalized: dict[str, Any] = {}
+    raw_key_for_canonical: dict[str, str] = {}
+    used_legacy: list[str] = []
+    for key, value in factors_obj.items():
+        canonical = _LEGACY_BERKUS_ALIASES.get(key, key)
+        if canonical in normalized and raw_key_for_canonical[canonical] != key:
+            raise ValidationError(
+                f"Conflicting Berkus factors for '{canonical}': "
+                "both canonical and legacy keys provided."
+            )
+        if key in _LEGACY_BERKUS_ALIASES:
+            used_legacy.append(key)
+        normalized[canonical] = value
+        raw_key_for_canonical[canonical] = key
+
+    if used_legacy:
+        logger.warning(
+            "berkus_legacy_factor_keys used=%s canonical=%s",
+            ",".join(sorted(used_legacy)),
+            ",".join(sorted({_LEGACY_BERKUS_ALIASES[k] for k in used_legacy})),
+        )
+    return normalized
 
 
 class BerkusMethodology(ValuationMethodology):
@@ -37,7 +81,7 @@ class BerkusMethodology(ValuationMethodology):
             "max_pre_money_valuation",
         )
 
-        factors_raw = require_field(inputs, "factors", dict)
+        factors_raw = _resolve_berkus_factors(inputs)
 
         # Validate all required factor keys
         for key in _BERKUS_FACTORS:
