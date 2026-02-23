@@ -23,7 +23,7 @@ def _all_true() -> dict[str, bool]:
 
 class TestBerkusHappyPath(unittest.TestCase):
     def setUp(self) -> None:
-        self.engine = ValuationEngine()
+        self.engine = ValuationEngine.mock()
         self.as_of = date(2026, 2, 22)
 
     def test_all_true(self) -> None:
@@ -160,7 +160,7 @@ class TestBerkusHappyPath(unittest.TestCase):
 
 class TestBerkusValidation(unittest.TestCase):
     def setUp(self) -> None:
-        self.engine = ValuationEngine()
+        self.engine = ValuationEngine.mock()
         self.as_of = date(2026, 2, 22)
 
     def test_missing_factor(self) -> None:

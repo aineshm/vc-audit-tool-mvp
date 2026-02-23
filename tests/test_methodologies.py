@@ -12,7 +12,7 @@ class LastRoundEdgeCaseTests(unittest.TestCase):
     """Edge and boundary cases for the last-round market-adjusted method."""
 
     def setUp(self) -> None:
-        self.engine = ValuationEngine()
+        self.engine = ValuationEngine.mock()
 
     def _payload(self, **overrides: object) -> dict:
         base = {
@@ -125,7 +125,7 @@ class CompsEdgeCaseTests(unittest.TestCase):
     """Edge and boundary cases for the comparable-companies method."""
 
     def setUp(self) -> None:
-        self.engine = ValuationEngine()
+        self.engine = ValuationEngine.mock()
 
     def _payload(self, **overrides: object) -> dict:
         base = {
@@ -259,7 +259,7 @@ class RequestParsingEdgeCases(unittest.TestCase):
     """Top-level request parsing edge cases."""
 
     def setUp(self) -> None:
-        self.engine = ValuationEngine()
+        self.engine = ValuationEngine.mock()
 
     def test_missing_company_name_raises(self) -> None:
         with self.assertRaises(ValidationError):

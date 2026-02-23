@@ -26,7 +26,7 @@ import pytest
 from vc_audit_tool.data_sources.edgar_comps import EdgarYFinanceComparableCompanySource
 from vc_audit_tool.data_sources.edgar_universe import EdgarCompany, EdgarCompanyUniverse
 from vc_audit_tool.data_sources.embedding_ranker import EmbeddingCompsRanker, RankedCompany
-from vc_audit_tool.data_sources.mock import ComparableCompany
+from vc_audit_tool.data_sources.mock import ComparableCompany, MockMarketIndexSource
 from vc_audit_tool.data_sources.yfinance_metrics import (
     TickerMetrics,
     YFinanceMetricsFetcher,
@@ -724,7 +724,10 @@ class TestEngineWithRealComps(unittest.TestCase):
             target_description="cloud data analytics",
         )
 
-        engine = ValuationEngine(comps_source=comps_source)
+        engine = ValuationEngine(
+            comps_source=comps_source,
+            index_source=MockMarketIndexSource(),
+        )
         payload = {
             "company_name": "Test Co",
             "methodology": "comparable_companies",

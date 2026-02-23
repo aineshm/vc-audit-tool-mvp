@@ -8,7 +8,12 @@ from pathlib import Path
 import pytest
 
 import vc_audit_tool.server as server_module
+from vc_audit_tool.engine import ValuationEngine
 from vc_audit_tool.store import ValuationStore
+
+# ── Swap the server's module-level engine to mock so tests never hit
+#    live Yahoo Finance / EDGAR / embedding endpoints.
+server_module.engine = ValuationEngine.mock()
 
 # Close the module-level store that was created at import time so the
 # default ``valuation_runs.db`` file can be cleaned up.

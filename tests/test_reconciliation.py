@@ -677,7 +677,7 @@ class TestReconciliationEngineIntegration(unittest.TestCase):
     def test_growth_stage_two_methods(self) -> None:
         from vc_audit_tool.reconciliation.engine import ReconciliationEngine
 
-        engine = ReconciliationEngine()
+        engine = ReconciliationEngine.mock()
         profile = _make_profile(stage="growth")
         dp = _make_data_package(
             revenue_ltm=Decimal("15000000"),
@@ -700,7 +700,7 @@ class TestReconciliationEngineIntegration(unittest.TestCase):
     def test_pre_seed_scorecard_berkus(self) -> None:
         from vc_audit_tool.reconciliation.engine import ReconciliationEngine
 
-        engine = ReconciliationEngine()
+        engine = ReconciliationEngine.mock()
         profile = _make_profile(
             stage="pre_seed",
             has_revenue=False,
@@ -744,7 +744,7 @@ class TestReconciliationEngineIntegration(unittest.TestCase):
     def test_to_dict_structure(self) -> None:
         from vc_audit_tool.reconciliation.engine import ReconciliationEngine
 
-        engine = ReconciliationEngine()
+        engine = ReconciliationEngine.mock()
         profile = _make_profile(stage="growth")
         dp = _make_data_package()
         rv = engine.value(
@@ -775,7 +775,7 @@ class TestReconciliationEngineIntegration(unittest.TestCase):
     def test_research_metadata_forwarded(self) -> None:
         from vc_audit_tool.reconciliation.engine import ReconciliationEngine
 
-        engine = ReconciliationEngine()
+        engine = ReconciliationEngine.mock()
         profile = _make_profile(stage="growth")
         dp = _make_data_package()
         meta = {"sources_consulted": ["pitchbook"], "query_count": 5}

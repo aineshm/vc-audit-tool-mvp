@@ -21,6 +21,7 @@ def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     """Run the CLI as a subprocess so we capture exit codes and stdout."""
     env = os.environ.copy()
     env["PYTHONPATH"] = str(SRC_DIR)
+    env["VC_AUDIT_MOCK"] = "1"  # Use mock data sources in tests
     return subprocess.run(
         [sys.executable, "-m", "vc_audit_tool.cli", *args],
         capture_output=True,

@@ -22,7 +22,7 @@ class DeterminismTests(unittest.TestCase):
     """Identical inputs must always produce byte-identical valuation_result."""
 
     def setUp(self) -> None:
-        self.engine = ValuationEngine()
+        self.engine = ValuationEngine.mock()
 
     # ── Last-round methodology ──
 
@@ -97,7 +97,7 @@ class RawRequestReplayTests(unittest.TestCase):
     """Load example JSON files and verify replay produces stable output."""
 
     def setUp(self) -> None:
-        self.engine = ValuationEngine()
+        self.engine = ValuationEngine.mock()
 
     def _replay(self, filename: str, n: int = 3) -> list[str]:
         """Run the same example file *n* times and return serialised valuation_results."""

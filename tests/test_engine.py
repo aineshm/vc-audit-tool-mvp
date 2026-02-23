@@ -10,7 +10,7 @@ from vc_audit_tool.interfaces import ComparableCompanySource, MarketIndexSource
 
 class ValuationEngineTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.engine = ValuationEngine()
+        self.engine = ValuationEngine.mock()
 
     def test_last_round_market_adjusted(self) -> None:
         payload = {

@@ -25,7 +25,7 @@ def _all_ones() -> dict[str, float]:
 
 class TestScorecardHappyPath(unittest.TestCase):
     def setUp(self) -> None:
-        self.engine = ValuationEngine()
+        self.engine = ValuationEngine.mock()
         self.as_of = date(2026, 2, 22)
 
     def test_all_factors_one(self) -> None:
@@ -142,7 +142,7 @@ class TestScorecardHappyPath(unittest.TestCase):
 
 class TestScorecardValidation(unittest.TestCase):
     def setUp(self) -> None:
-        self.engine = ValuationEngine()
+        self.engine = ValuationEngine.mock()
         self.as_of = date(2026, 2, 22)
 
     def test_missing_factor_key(self) -> None:

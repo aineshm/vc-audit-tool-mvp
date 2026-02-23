@@ -207,7 +207,7 @@ class TestStalenessWarning(unittest.TestCase):
     def _run_valuation(self, as_of_date: str) -> dict[str, Any]:
         from vc_audit_tool.engine import ValuationEngine
 
-        engine = ValuationEngine()
+        engine = ValuationEngine.mock()
         payload = {
             "company_name": "Test Co",
             "methodology": "last_round_market_adjusted",

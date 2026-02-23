@@ -25,7 +25,7 @@ class TestMultipleRatchetHappyPaths(unittest.TestCase):
     """Happy-path tests with mock data."""
 
     def setUp(self) -> None:
-        self.engine = ValuationEngine()
+        self.engine = ValuationEngine.mock()
 
     # ── TechCo scenario (mock enterprise_software median = 11.8x) ──
 
@@ -160,7 +160,7 @@ class TestMultipleCompressionScenario(unittest.TestCase):
     """Simulate multiple compression using infrastructure_software (lower multiples)."""
 
     def setUp(self) -> None:
-        self.engine = ValuationEngine()
+        self.engine = ValuationEngine.mock()
 
     def test_compression_with_infrastructure_software(self) -> None:
         """If implied multiple at last round was high, infrastructure_software may compress it."""
@@ -195,7 +195,7 @@ class TestRatchetSeverityLabels(unittest.TestCase):
     """Test all five ratchet-severity labels with crafted multiples."""
 
     def setUp(self) -> None:
-        self.engine = ValuationEngine()
+        self.engine = ValuationEngine.mock()
 
     def _make_payload(
         self,
@@ -257,7 +257,7 @@ class TestMultipleRatchetValidation(unittest.TestCase):
     """Input validation tests."""
 
     def setUp(self) -> None:
-        self.engine = ValuationEngine()
+        self.engine = ValuationEngine.mock()
 
     def _base_payload(self) -> dict:
         return {
@@ -355,7 +355,7 @@ class TestMultipleRatchetConfidenceIndicators(unittest.TestCase):
     """Verify structure of confidence indicators."""
 
     def setUp(self) -> None:
-        self.engine = ValuationEngine()
+        self.engine = ValuationEngine.mock()
 
     def test_all_confidence_keys_present(self) -> None:
         payload = {
@@ -438,7 +438,7 @@ class TestMultipleRatchetAuditMetadata(unittest.TestCase):
     """Verify audit metadata envelope."""
 
     def setUp(self) -> None:
-        self.engine = ValuationEngine()
+        self.engine = ValuationEngine.mock()
 
     def test_audit_metadata_present(self) -> None:
         payload = {
@@ -478,7 +478,7 @@ class TestMultipleRatchetEdgeCases(unittest.TestCase):
     """Edge cases."""
 
     def setUp(self) -> None:
-        self.engine = ValuationEngine()
+        self.engine = ValuationEngine.mock()
 
     def test_very_small_revenue_still_works(self) -> None:
         payload = {

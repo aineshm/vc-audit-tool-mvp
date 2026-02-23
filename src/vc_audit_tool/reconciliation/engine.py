@@ -46,6 +46,16 @@ class ReconciliationEngine:
         )
         self._selector = MethodologySelector(rules_path or _DEFAULT_RULES_PATH)
 
+    @classmethod
+    def mock(cls) -> ReconciliationEngine:
+        """Create a reconciliation engine backed by deterministic mock data."""
+        from vc_audit_tool.data_sources import MockComparableCompanySource, MockMarketIndexSource
+
+        return cls(
+            index_source=MockMarketIndexSource(),
+            comps_source=MockComparableCompanySource(),
+        )
+
     def value(
         self,
         profile: CompanyProfile,
