@@ -60,6 +60,11 @@ curl -X POST http://127.0.0.1:8080/research \
      -H 'Content-Type: application/json' \
      -d '{"company_name": "Anthropic"}'
 
+# Multi-methodology reconciled valuation (Phase 2):
+curl -X POST http://127.0.0.1:8080/reconcile \
+     -H 'Content-Type: application/json' \
+     -d '{"company_name": "Anthropic", "description_hint": "AI safety lab"}'
+
 open http://127.0.0.1:8080              # Web UI with run history
 open http://127.0.0.1:8080/docs         # Auto-generated OpenAPI docs
 ```
@@ -119,7 +124,7 @@ The `target_description` is the key input for finding relevant comps. You can:
 ## Running Tests
 
 ```bash
-# Unit tests only (default, no network needed) — ~335 tests
+# Unit tests only (default, no network needed) — ~392 tests
 python -m pytest tests/ -q
 
 # Include integration tests (hits SEC EDGAR + Yahoo Finance APIs)
@@ -139,16 +144,16 @@ All four must pass before committing:
 ```bash
 ruff check src/ tests/               # linter (pyflakes, isort, bugbear, etc.)
 ruff format --check src/ tests/      # formatter
-mypy src/                            # strict type checking (27 source files)
-python -m pytest tests/ -q           # 335 unit tests
+mypy src/                            # strict type checking (35 source files)
+python -m pytest tests/ -q           # 392 unit tests
 ```
 
 Current status:
 ```
 ruff check:   ✅ All checks passed
-ruff format:  ✅ 42 files already formatted
-mypy:         ✅ Success: no issues found in 27 source files
-pytest:       ✅ 335 passed, 11 deselected (integration)
+ruff format:  ✅ All files already formatted
+mypy:         ✅ Success: no issues found in 35 source files
+pytest:       ✅ 392 passed, 11 deselected (integration)
 ```
 
 ---
@@ -228,6 +233,155 @@ Re-rates a prior-round valuation by comparing the **implied revenue multiple** a
 5. Apply private-company discount: $84M × 0.80 = **$67.2M**
 
 This methodology is ideal for scenarios where sector multiples have contracted (or expanded) significantly since the last funding round.
+
+### 4. Scorecard (`scorecard`) — *Phase 2*
+
+The **Payne Scorecard Method** benchmarks a startup against 7 qualitative factors (strength of team, size of opportunity, product/technology, competitive environment, marketing/sales, need for additional funding, other) relative to a regional median pre-money valuation.
+
+Each factor is scored 0.0 – 2.0 (1.0 = average), weighted, and the weighted-average factor is applied to the regional median.
+
+```json
+{
+  "company_name": "NovaBio",
+  "methodology": "scorecard",
+  "as_of_date": "2026-03-01",
+  "inputs": {
+    "regional_median_pre_money": 6000000,
+    "scorecard_factors": {
+      "team": 1.5,
+      "opportunity": 1.2,
+      "product": 1.0,
+      "competitive_env": 0.8,
+      "marketing": 1.1,
+      "need_for_funding": 0.9,
+      "other": 1.0
+    }
+  }
+}
+```
+
+### 5. Berkus (`berkus`) — *Phase 2*
+
+The **Berkus Method** assigns up to a maximum value across 5 risk dimensions (sound idea, prototype, quality management, strategic relationships, product rollout / sales). Each factor is scored as a boolean (present/absent) or a float 0.0 – 1.0 for partial credit.
+
+```json
+{
+  "company_name": "NovaBio",
+  "methodology": "berkus",
+  "as_of_date": "2026-03-01",
+  "inputs": {
+    "max_pre_money_valuation": 2500000,
+    "berkus_factors": {
+      "sound_idea": true,
+      "prototype": 0.7,
+      "quality_management": true,
+      "strategic_relationships": false,
+      "product_rollout": 0.3
+    }
+  }
+}
+```
+
+---
+
+## Multi-Methodology Reconciliation (Phase 2)
+
+The reconciliation layer automatically selects, weights, and reconciles multiple methodologies into a single concluded valuation.
+
+### How It Works
+
+1. **CompanyProfiler** — classifies the company into a lifecycle stage (`pre_seed`, `seed`, `early`, `growth`, `late`) based on age, revenue, round history, and headcount
+2. **MethodologySelector** — loads a versioned YAML rules config (`config/methodology_rules_v1.yaml`) and applies stage exclusions, data-availability rules, and base weights to produce a `MethodologyPlan`
+3. **Reconciler** — runs each selected methodology, computes a weighted-average point estimate, derives a range (±10% or from min/max results), and flags divergence when any pair of results differs by > 40%
+
+### `POST /reconcile` Endpoint
+
+```bash
+curl -X POST http://127.0.0.1:8080/reconcile \
+  -H "Content-Type: application/json" \
+  -d '{
+    "company_name": "Anthropic",
+    "as_of_date": "2026-03-01",
+    "description_hint": "AI safety research lab"
+  }'
+```
+
+**Request body:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `company_name` | ✅ | Name of the company to value |
+| `as_of_date` | ❌ | Valuation date (defaults to today) |
+| `description_hint` | ❌ | Short description to improve semantic comp matching |
+
+**What happens under the hood:**
+
+1. **Research** — the agent searches SEC EDGAR, DuckDuckGo, and USASpending.gov for the company
+2. **Profile** — the profiler classifies the company's lifecycle stage
+3. **Select** — the selector picks applicable methodologies and assigns weights from the YAML rules
+4. **Execute** — each selected methodology runs independently through the valuation engine
+5. **Reconcile** — results are combined into a weighted-average point estimate with range and divergence analysis
+
+<details>
+<summary>Sample Response (Reconciled Valuation)</summary>
+
+```json
+{
+  "concluded_value": {
+    "point_estimate": 120000000.0,
+    "range_low": 108000000.0,
+    "range_high": 132000000.0,
+    "currency": "USD",
+    "as_of_date": "2026-03-01"
+  },
+  "reconciliation": {
+    "methodology_weights": [
+      {
+        "methodology": "comparable_companies",
+        "weight": 0.60,
+        "rationale": "Growth-stage company with strong revenue — comps method primary anchor",
+        "data_requirements_met": true,
+        "point_estimate": 130000000.0
+      },
+      {
+        "methodology": "last_round_market_adjusted",
+        "weight": 0.40,
+        "rationale": "Recent round within 18 months — reliable secondary anchor",
+        "data_requirements_met": true,
+        "point_estimate": 105000000.0
+      }
+    ],
+    "divergence_flag": false,
+    "divergence_note": null,
+    "reconciliation_rationale": "Weighted average of 2 applicable methodologies for growth-stage company.",
+    "selector_version": "v1.0"
+  },
+  "methodology_results": { "...": "full ValuationResult per method" },
+  "company_profile": {
+    "name": "Anthropic",
+    "stage": "growth",
+    "has_revenue": true,
+    "sector": "enterprise_software",
+    "...": "..."
+  },
+  "audit_metadata": { "request_id": "...", "generated_at_utc": "..." }
+}
+```
+</details>
+
+### Stage-Based Methodology Weights
+
+The YAML rules config defines base weights per lifecycle stage:
+
+| Stage | Scorecard | Berkus | Comps | Last-Round Market-Adj | Last-Round Ratchet |
+|-------|-----------|--------|-------|-----------------------|--------------------|
+| `pre_seed` | 50% | 50% | ❌ excluded | ❌ excluded | ❌ excluded |
+| `seed` | 35% | 30% | — | 35% | ❌ excluded |
+| `early` | — | — | 50% | 50% | — |
+| `growth` | — | — | 60% | 40% | — |
+| `late` | — | — | 70% | 30% | — |
+
+Weights are dynamically adjusted based on data availability (e.g., round staleness, peer-set quality, revenue presence). If a methodology is excluded at runtime, remaining weights are renormalised.
 
 ---
 
@@ -351,14 +505,15 @@ This methodology is ideal for scenarios where sector multiples have contracted (
 
 ### What's Built
 
-| Epic | Feature | Status |
-|------|---------|--------|
+| Phase | Feature | Status |
+|-------|---------|--------|
 | **MVP** | Valuation engine, 3 methodologies, CLI, FastAPI server, Web UI, SQLite persistence | ✅ Complete |
 | **Epic 1** | `YFinanceMarketIndexSource` — live NASDAQ/Russell 2000 levels via Yahoo Finance | ✅ Complete |
 | **Epic 2** | Real Comparable Companies — EDGAR universe + yfinance metrics + embedding ranker | ✅ Complete |
 | **Epic 3** | Private Company Data Agent — LangGraph research agent, Form D, USASpending, DuckDuckGo + multi-provider LLM extraction | ✅ Complete |
 | **Epic 4** | `POST /research` endpoint — one-call company valuation from just a name | ✅ Complete |
 | **Epic 5** | Observability — `vc-audit cache list/clear` CLI + `vc-audit confidence <id>` report | ✅ Complete |
+| **Phase 2** | Multi-methodology reconciliation — Scorecard & Berkus methods, CompanyProfiler, MethodologySelector (YAML rules), Reconciler, `POST /reconcile` endpoint | ✅ Complete |
 
 ### Automated Research Agent (`POST /research`)
 
@@ -416,6 +571,8 @@ pip install -e ".[llm]"    # installs langchain-google-genai, langchain-anthropi
 
 **Automated mode** (`POST /research`): provide only a company name. The agent searches SEC filings, the web, and government contracts to assemble inputs, then runs the valuation engine.
 
+**Reconciled mode** (`POST /reconcile`): provide a company name + optional description. The system researches the company, profiles its stage, selects applicable methodologies, runs all of them, and produces a single weighted-average valuation with divergence analysis.
+
 **Manual mode** (`POST /value` or CLI): provide structured inputs directly. The engine can produce real valuations for private companies using live public market data. You need:
 
 1. **Revenue (LTM)** — the target company's last-twelve-months revenue
@@ -433,7 +590,7 @@ The system will then automatically:
 | Epic | Feature | Description |
 |------|---------|-------------|
 | **Epic 6** | Auto-description | Scrape company website or use LLM to generate `target_description` automatically |
-| **Epic 7** | Additional methodologies | DCF, weighted average of methods, multi-currency support |
+| **Epic 7** | Additional methodologies | DCF, multi-currency support |
 | **Epic 8** | CLI `--live` flag | Wire live providers into CLI flags for command-line valuations |
 
 ---
