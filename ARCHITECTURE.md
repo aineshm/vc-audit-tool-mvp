@@ -858,11 +858,11 @@ company_name
 The web research node uses a **multi-provider fallback chain**:
 
 ```
+GOOGLE_API_KEY set?    -> ChatGoogleGenerativeAI(gemini-2.0-flash)
+    | no
 OPENAI_API_KEY set?    -> ChatOpenAI(gpt-4o-mini)
     | no
 ANTHROPIC_API_KEY set? -> ChatAnthropic(claude-3-5-haiku)
-    | no
-GOOGLE_API_KEY set?    -> ChatGoogleGenerativeAI(gemini-2.0-flash)
     | no
 OLLAMA_MODEL set?      -> ChatOllama(local model)
     | no

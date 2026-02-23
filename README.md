@@ -556,18 +556,18 @@ The agent uses a **multi-provider fallback chain**. Set one or more API keys as 
 
 | Priority | Provider | Env Var | Cost/Request |
 |----------|----------|---------|-------------|
-| 1 | **OpenAI GPT-4o-mini** | `OPENAI_API_KEY` | ~$0.002 |
-| 2 | **Anthropic Claude 3.5 Haiku** | `ANTHROPIC_API_KEY` | ~$0.003 |
-| 3 | **Google Gemini 2.0 Flash** | `GOOGLE_API_KEY` | ~$0.001 |
+| 1 | **Google Gemini 2.0 Flash** | `GOOGLE_API_KEY` | ~$0.001 |
+| 2 | **OpenAI GPT-4o-mini** | `OPENAI_API_KEY` | ~$0.002 |
+| 3 | **Anthropic Claude 3.5 Haiku** | `ANTHROPIC_API_KEY` | ~$0.003 |
 | 4 | **Ollama (local)** | `OLLAMA_MODEL` | $0 |
 | 5 | **Regex-only fallback** | *(none needed)* | $0 |
 
 ```bash
-# Example: use OpenAI (highest priority when set)
-export OPENAI_API_KEY="sk-..."
+# Example: use Google Gemini (highest priority when set)
+export GOOGLE_API_KEY="..."
 
 # Optional: override the default model
-export OPENAI_MODEL="gpt-4o"
+export GOOGLE_MODEL="gemini-2.0-flash"
 
 # Or use a local Ollama model (no API key needed)
 export OLLAMA_MODEL="llama3.2"

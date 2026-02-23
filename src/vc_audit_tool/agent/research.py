@@ -16,9 +16,9 @@ Web research strategy
 DuckDuckGo search always runs first (free, no key).  Then an LLM
 extracts structured facts from the snippets.  Provider priority:
 
-  1. **OpenAI GPT-4o-mini**        (``OPENAI_API_KEY``)   ~$0.002/req
-  2. **Anthropic Claude 3.5 Haiku** (``ANTHROPIC_API_KEY``)  ~$0.003/req
-  3. **Google Gemini 2.0 Flash**   (``GOOGLE_API_KEY``)   ~$0.001/req
+  1. **Google Gemini 2.0 Flash**   (``GOOGLE_API_KEY``)   ~$0.001/req
+  2. **OpenAI GPT-4o-mini**        (``OPENAI_API_KEY``)   ~$0.002/req
+  3. **Anthropic Claude 3.5 Haiku** (``ANTHROPIC_API_KEY``)  ~$0.003/req
   4. **Ollama local model**        (``OLLAMA_MODEL`` env)  $0 (local GPU)
   5. **Regex-only fallback**       (no LLM needed)        $0
 
@@ -274,7 +274,7 @@ def _web_research_node(state: ResearchState) -> ResearchState:
        (always runs as a safety net).
     3. **LLM extraction** — the first available provider is used to
        extract structured facts from the raw search text.  Provider
-       priority: Gemini Flash → Anthropic Haiku → OpenAI 4o-mini → Ollama.
+       priority: Gemini Flash → OpenAI 4o-mini → Anthropic Haiku → Ollama.
 
     The node *always* produces results (even without an LLM) because the
     regex pass catches the most common patterns.  The LLM layer just
@@ -363,20 +363,30 @@ def _ddg_search(
 def _get_llm() -> tuple[Any, str]:
     """Return ``(llm_instance, model_label)`` for the first available provider.
 
-    Priority: OpenAI 4o-mini → Anthropic Haiku → Gemini Flash → Ollama.
+    Priority: Gemini Flash → OpenAI 4o-mini → Anthropic Haiku → Ollama.
     Returns ``(None, "")`` when nothing is configured.
     """
-    # 1. OpenAI GPT-4o-mini
+    # 1. Google Gemini 2.0 Flash (cheapest API option ~$0.001 / req)
+    if os.environ.get("GOOGLE_API_KEY") and ChatGoogleGenerativeAI is not None:
+        try:
+            model = os.environ.get("GOOGLE_MODEL", "gemini-2.0-flash")
+            llm: Any = ChatGoogleGenerativeAI(model=model, temperature=0, max_output_tokens=1024)
+            logger.info("web_research: using Google %s", model)
+            return llm, f"google/{model}"
+        except Exception as exc:
+            logger.warning("Google Gemini init failed (%s) -- trying next", exc)
+
+    # 2. OpenAI GPT-4o-mini
     if os.environ.get("OPENAI_API_KEY") and ChatOpenAI is not None:
         try:
             model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-            llm: Any = ChatOpenAI(model=model, temperature=0)
+            llm = ChatOpenAI(model=model, temperature=0)
             logger.info("web_research: using OpenAI %s", model)
             return llm, f"openai/{model}"
         except Exception as exc:
             logger.warning("OpenAI init failed (%s) -- trying next", exc)
 
-    # 2. Anthropic Claude 3.5 Haiku
+    # 3. Anthropic Claude 3.5 Haiku
     if os.environ.get("ANTHROPIC_API_KEY") and ChatAnthropic is not None:
         try:
             model = os.environ.get("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022")
@@ -385,16 +395,6 @@ def _get_llm() -> tuple[Any, str]:
             return llm, f"anthropic/{model}"
         except Exception as exc:
             logger.warning("Anthropic init failed (%s) -- trying next", exc)
-
-    # 3. Google Gemini 2.0 Flash (cheapest API option ~$0.001 / req)
-    if os.environ.get("GOOGLE_API_KEY") and ChatGoogleGenerativeAI is not None:
-        try:
-            model = os.environ.get("GOOGLE_MODEL", "gemini-2.0-flash")
-            llm = ChatGoogleGenerativeAI(model=model, temperature=0, max_output_tokens=1024)
-            logger.info("web_research: using Google %s", model)
-            return llm, f"google/{model}"
-        except Exception as exc:
-            logger.warning("Google Gemini init failed (%s) -- trying next", exc)
 
     # 4. Ollama local model (free, no API key, must be running)
     ollama_model = os.environ.get("OLLAMA_MODEL", "")

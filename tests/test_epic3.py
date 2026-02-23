@@ -802,6 +802,57 @@ class WebResearchNodeTests(unittest.TestCase):
         # No LLM was used
         self.assertIsNone(result["web_facts"]["llm_model_version"])
 
+    @patch("vc_audit_tool.agent.research.ChatAnthropic")
+    @patch("vc_audit_tool.agent.research.ChatOpenAI")
+    @patch("vc_audit_tool.agent.research.ChatGoogleGenerativeAI")
+    def test_get_llm_prioritizes_google_when_multiple_keys_set(
+        self,
+        mock_google_cls: MagicMock,
+        mock_openai_cls: MagicMock,
+        mock_anthropic_cls: MagicMock,
+    ) -> None:
+        from vc_audit_tool.agent.research import _get_llm
+
+        with patch.dict(
+            os.environ,
+            {
+                "GOOGLE_API_KEY": "g-key",
+                "OPENAI_API_KEY": "o-key",
+                "ANTHROPIC_API_KEY": "a-key",
+                "GOOGLE_MODEL": "gemini-test",
+            },
+            clear=True,
+        ):
+            _llm, label = _get_llm()
+
+        self.assertEqual(label, "google/gemini-test")
+        mock_google_cls.assert_called_once()
+        mock_openai_cls.assert_not_called()
+        mock_anthropic_cls.assert_not_called()
+
+    @patch("vc_audit_tool.agent.research.ChatOpenAI")
+    @patch("vc_audit_tool.agent.research.ChatGoogleGenerativeAI")
+    def test_get_llm_falls_back_to_openai_when_google_init_fails(
+        self, mock_google_cls: MagicMock, mock_openai_cls: MagicMock
+    ) -> None:
+        from vc_audit_tool.agent.research import _get_llm
+
+        mock_google_cls.side_effect = RuntimeError("google init failed")
+        with patch.dict(
+            os.environ,
+            {
+                "GOOGLE_API_KEY": "g-key",
+                "OPENAI_API_KEY": "o-key",
+                "OPENAI_MODEL": "gpt-4o-mini",
+            },
+            clear=True,
+        ):
+            _llm, label = _get_llm()
+
+        self.assertEqual(label, "openai/gpt-4o-mini")
+        mock_google_cls.assert_called_once()
+        mock_openai_cls.assert_called_once()
+
 
 class AssembleNodeTests(unittest.TestCase):
     """Unit tests for _assemble_node."""
