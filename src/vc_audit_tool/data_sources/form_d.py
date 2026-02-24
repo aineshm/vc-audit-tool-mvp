@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -28,7 +29,21 @@ logger = logging.getLogger(__name__)
 _DEFAULT_CACHE_DIR = Path("data/form_d_cache")
 _EFTS_SEARCH_URL = "https://efts.sec.gov/LATEST/search-index"
 _FILING_BASE_URL = "https://www.sec.gov/Archives/edgar/data"
-_USER_AGENT = "vc-audit-tool/0.1 (aineshm@github.com)"
+_COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+_USER_AGENT = "vc-audit-tool/0.1 (contact@example.com)"
+
+
+def _sec_headers() -> dict[str, str]:
+    user_agent = os.environ.get("VC_AUDIT_SEC_USER_AGENT", _USER_AGENT).strip()
+    if user_agent == _USER_AGENT:
+        logger.warning(
+            "SEC requests using default User-Agent; set VC_AUDIT_SEC_USER_AGENT to a real contact "
+            "(e.g., 'YourName your.email@company.com') to reduce 403 risk."
+        )
+    return {
+        "User-Agent": user_agent,
+        "Accept-Encoding": "gzip, deflate",
+    }
 
 
 @dataclass(frozen=True)
@@ -129,13 +144,19 @@ class FormDSource:
             resp = httpx.get(
                 _EFTS_SEARCH_URL,
                 params=params,
-                headers={"User-Agent": _USER_AGENT},
+                headers=_sec_headers(),
                 timeout=30,
             )
         except httpx.HTTPError as exc:
             raise DataSourceError(f"EDGAR Form D search failed: {exc}") from exc
 
         if resp.status_code != 200:
+            if resp.status_code == 403:
+                logger.warning(
+                    "EFTS returned HTTP 403 for '%s'; retrying via SEC submissions API",
+                    company_name,
+                )
+                return self._fetch_form_d_from_submissions(company_name)
             raise DataSourceError(
                 f"EDGAR Form D search returned HTTP {resp.status_code} "
                 f"for company '{company_name}'."
@@ -165,6 +186,138 @@ class FormDSource:
         rounds.sort(key=lambda r: r.filing_date, reverse=True)
         logger.info("parsed %d Form D rounds for '%s'", len(rounds), company_name)
         return rounds
+
+    def _fetch_form_d_from_submissions(self, company_name: str) -> list[FundingRound]:
+        """Fallback path when EFTS is blocked: SEC submissions JSON by CIK."""
+        import httpx
+
+        cik = self._lookup_cik(company_name)
+        if not cik:
+            logger.info("no CIK match found for '%s' via company_tickers.json", company_name)
+            return []
+
+        submissions_url = f"https://data.sec.gov/submissions/CIK{cik}.json"
+        try:
+            resp = httpx.get(
+                submissions_url,
+                headers=_sec_headers(),
+                timeout=30,
+            )
+        except httpx.HTTPError as exc:
+            logger.warning("submissions fallback failed for '%s': %s", company_name, exc)
+            return []
+
+        if resp.status_code != 200:
+            logger.warning(
+                "submissions fallback returned HTTP %d for '%s'",
+                resp.status_code,
+                company_name,
+            )
+            return []
+
+        try:
+            data = resp.json()
+        except Exception:
+            logger.warning("submissions fallback returned non-JSON for '%s'", company_name)
+            return []
+
+        recent = data.get("filings", {}).get("recent", {})
+        forms = recent.get("form", [])
+        filing_dates = recent.get("filingDate", [])
+        accession_numbers = recent.get("accessionNumber", [])
+        primary_docs = recent.get("primaryDocument", [])
+        issuer_name = str(data.get("name", company_name))
+
+        rounds: list[FundingRound] = []
+        count = min(len(forms), len(filing_dates), len(accession_numbers))
+        for idx in range(count):
+            form = str(forms[idx] or "")
+            if form not in {"D", "D/A"}:
+                continue
+            filing_date_raw = str(filing_dates[idx] or "")
+            try:
+                filing_date = date.fromisoformat(filing_date_raw[:10])
+            except ValueError:
+                continue
+            accession = str(accession_numbers[idx] or "")
+            accession_nodash = accession.replace("-", "")
+            primary_doc = (
+                str(primary_docs[idx]).strip()
+                if idx < len(primary_docs) and primary_docs[idx]
+                else ""
+            )
+            if accession_nodash and primary_doc:
+                source_url = (
+                    f"{_FILING_BASE_URL}/{int(cik)}/{accession_nodash}/{primary_doc}"
+                )
+            elif accession_nodash:
+                source_url = f"{_FILING_BASE_URL}/{int(cik)}/{accession_nodash}/"
+            else:
+                source_url = (
+                    f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={int(cik)}"
+                    "&type=D&owner=include&count=10"
+                )
+
+            rounds.append(
+                FundingRound(
+                    date_of_first_sale=filing_date,
+                    amount_raised=0.0,  # Requires XML parsing (not in submissions recent table)
+                    amount_sold=0.0,
+                    issuer_name=issuer_name,
+                    issuer_state="",
+                    investor_count=None,
+                    source_url=source_url,
+                    filing_date=filing_date,
+                )
+            )
+
+        rounds.sort(key=lambda r: r.filing_date, reverse=True)
+        logger.info(
+            "submissions fallback parsed %d Form D rounds for '%s' (cik=%s)",
+            len(rounds),
+            company_name,
+            cik,
+        )
+        return rounds
+
+    def _lookup_cik(self, company_name: str) -> str | None:
+        """Best-effort CIK lookup using SEC company_tickers.json."""
+        import httpx
+
+        try:
+            resp = httpx.get(
+                _COMPANY_TICKERS_URL,
+                headers=_sec_headers(),
+                timeout=30,
+            )
+        except httpx.HTTPError as exc:
+            logger.warning("CIK lookup failed for '%s': %s", company_name, exc)
+            return None
+        if resp.status_code != 200:
+            logger.warning("CIK lookup HTTP %d for '%s'", resp.status_code, company_name)
+            return None
+
+        try:
+            raw = resp.json()
+        except Exception:
+            logger.warning("CIK lookup returned non-JSON for '%s'", company_name)
+            return None
+
+        target = company_name.strip().lower()
+        if not target:
+            return None
+
+        best_partial: str | None = None
+        for entry in raw.values():
+            title = str(entry.get("title", "")).strip().lower()
+            cik_str = str(entry.get("cik_str", "")).strip()
+            if not title or not cik_str:
+                continue
+            if title == target:
+                return cik_str.zfill(10)
+            if target in title and best_partial is None:
+                best_partial = cik_str.zfill(10)
+        return best_partial
 
     @staticmethod
     def _parse_efts_hit(source: dict[str, object]) -> FundingRound | None:

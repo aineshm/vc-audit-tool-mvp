@@ -545,7 +545,7 @@ curl -X POST http://127.0.0.1:8080/research \
 
 1. **Parse** — normalise company name, infer sector from keywords
 2. **SEC Form D** — search EDGAR EFTS for Regulation D filings (funding rounds)
-3. **Web research** — 4 DuckDuckGo queries × 6 results, then LLM-structured extraction
+3. **Web research** — 7 DuckDuckGo/DDGS queries × 6 results, then LLM-structured extraction
 4. **Federal contracts** — query USASpending.gov for government revenue
 5. **Assemble** — auto-select methodology, build a complete `ValuationRequest`
 6. **Engine** — run the valuation and return an auditable result with full derivation trail
@@ -556,7 +556,7 @@ The agent uses a **multi-provider fallback chain**. Set one or more API keys as 
 
 | Priority | Provider | Env Var | Cost/Request |
 |----------|----------|---------|-------------|
-| 1 | **Google Gemini 2.0 Flash** | `GOOGLE_API_KEY` | ~$0.001 |
+| 1 | **Google Gemini 2.5 Flash** | `GOOGLE_API_KEY` | ~$0.001 |
 | 2 | **OpenAI GPT-4o-mini** | `OPENAI_API_KEY` | ~$0.002 |
 | 3 | **Anthropic Claude 3.5 Haiku** | `ANTHROPIC_API_KEY` | ~$0.003 |
 | 4 | **Ollama (local)** | `OLLAMA_MODEL` | $0 |
@@ -567,7 +567,7 @@ The agent uses a **multi-provider fallback chain**. Set one or more API keys as 
 export GOOGLE_API_KEY="..."
 
 # Optional: override the default model
-export GOOGLE_MODEL="gemini-2.0-flash"
+export GOOGLE_MODEL="gemini-2.5-flash"
 
 # Or use a local Ollama model (no API key needed)
 export OLLAMA_MODEL="llama3.2"
@@ -581,6 +581,16 @@ To install the optional LLM provider packages:
 pip install -e ".[llm]"    # installs langchain-google-genai, langchain-anthropic, langchain-openai
 ```
 
+### SEC Access Configuration (Live EDGAR)
+
+For live EDGAR access, set a contactable SEC user-agent string:
+
+```bash
+export VC_AUDIT_SEC_USER_AGENT="Your Name your-email@company.com"
+```
+
+SEC endpoints may return `403` with generic/default user agents.
+
 ### Can It Value Real Companies Today?
 
 **Yes — fully automated or with manual input.**
@@ -592,6 +602,13 @@ pip install -e ".[llm]"    # installs langchain-google-genai, langchain-anthropi
 | `POST /value` or `POST /api/value` | Manual structured valuation | Explicitly provided by caller | Required for manual `comparable_companies` payloads |
 
 **Automated mode** (`POST /research`): provide only a company name. The agent searches SEC filings, the web, and government contracts to assemble inputs, then runs the valuation engine.
+
+If no methodology can be fully assembled, `/research` returns HTTP `200` with a partial payload:
+- `assembled_request: null`
+- `best_available_methodology`
+- `missing_for_best_available`
+- `research_metadata`
+- `web_facts`
 
 **Reconciled mode** (`POST /reconcile`): provide a company name + optional description. The system researches the company, profiles its stage, selects applicable methodologies, runs all of them, and produces a single weighted-average valuation with divergence analysis.
 

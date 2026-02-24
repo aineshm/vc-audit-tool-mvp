@@ -160,6 +160,38 @@ class FormDSourceTests(unittest.TestCase):
         with self.assertRaises(DataSourceError):
             src.search("FailCo")
 
+    @patch("httpx.get")
+    def test_search_403_falls_back_to_submissions(self, mock_get: MagicMock) -> None:
+        efts_resp = MagicMock()
+        efts_resp.status_code = 403
+
+        tickers_resp = MagicMock()
+        tickers_resp.status_code = 200
+        tickers_resp.json.return_value = {
+            "0": {"cik_str": 1810806, "ticker": "TEST", "title": "TestCo"}
+        }
+
+        submissions_resp = MagicMock()
+        submissions_resp.status_code = 200
+        submissions_resp.json.return_value = {
+            "name": "TestCo",
+            "filings": {
+                "recent": {
+                    "form": ["D", "8-K"],
+                    "filingDate": ["2024-06-15", "2024-05-01"],
+                    "accessionNumber": ["0001810806-24-000001", "0001810806-24-000002"],
+                    "primaryDocument": ["xslFormDX01/primary_doc.xml", "x.xml"],
+                }
+            },
+        }
+
+        mock_get.side_effect = [efts_resp, tickers_resp, submissions_resp]
+
+        src = self._make_source()
+        rounds = src.search("TestCo")
+        self.assertEqual(len(rounds), 1)
+        self.assertEqual(rounds[0].filing_date, date(2024, 6, 15))
+
     # -- Cache --
 
     @patch("httpx.get")
@@ -932,6 +964,28 @@ class AssembleNodeTests(unittest.TestCase):
         self.assertIsNone(result["assembled_request"])
         self.assertIn("revenue_ltm", result["missing_fields"])
 
+    def test_auto_selection_reports_best_available_when_incomplete(self) -> None:
+        from vc_audit_tool.agent.research import _assemble_node
+
+        state: dict[str, Any] = {
+            "normalised_name": "TestCo",
+            "as_of_date": "2026-01-01",
+            "methodology": "",
+            "inferred_sector": "enterprise_software",
+            "web_facts": {
+                "revenue_ltm": None,
+                "last_post_money_valuation": None,
+                "last_round_date": None,
+                "sources": [],
+            },
+            "form_d_rounds": [],
+            "government_contracts": [],
+        }
+        result = _assemble_node(state)  # type: ignore[arg-type]
+        self.assertIsNone(result["assembled_request"])
+        self.assertEqual(result["best_available_methodology"], "comparable_companies")
+        self.assertEqual(result["missing_for_best_available"], ["revenue_ltm"])
+
     def test_unsupported_methodology(self) -> None:
         from vc_audit_tool.agent.research import _assemble_node
 
@@ -1060,6 +1114,45 @@ class AssembleNodeTests(unittest.TestCase):
         self.assertEqual(req["company_name"], "TestCo")
         self.assertEqual(req["as_of_date"], "2026-01-01")
         self.assertIn("public_index", req["inputs"])
+
+    def test_last_round_normalizes_month_year_date(self) -> None:
+        from vc_audit_tool.agent.research import _assemble_node
+
+        state: dict[str, Any] = {
+            "normalised_name": "TestCo",
+            "as_of_date": "2026-01-01",
+            "methodology": "last_round_market_adjusted",
+            "inferred_sector": "enterprise_software",
+            "web_facts": {
+                "last_round_date": "January 2003)",
+                "last_post_money_valuation": 100_000_000,
+            },
+            "form_d_rounds": [],
+            "government_contracts": [],
+        }
+        result = _assemble_node(state)  # type: ignore[arg-type]
+        req = result["assembled_request"]
+        self.assertIsNotNone(req)
+        self.assertEqual(req["inputs"]["last_round_date"], "2003-01-01")
+
+    def test_last_round_invalid_date_is_missing(self) -> None:
+        from vc_audit_tool.agent.research import _assemble_node
+
+        state: dict[str, Any] = {
+            "normalised_name": "TestCo",
+            "as_of_date": "2026-01-01",
+            "methodology": "last_round_market_adjusted",
+            "inferred_sector": "enterprise_software",
+            "web_facts": {
+                "last_round_date": "sometime recently",
+                "last_post_money_valuation": 100_000_000,
+            },
+            "form_d_rounds": [],
+            "government_contracts": [],
+        }
+        result = _assemble_node(state)  # type: ignore[arg-type]
+        self.assertIsNone(result["assembled_request"])
+        self.assertIn("last_round_date", result["missing_fields"])
 
 
 # -- Helper functions --------------------------------------------------------
@@ -1321,10 +1414,10 @@ class ResearchEndpointTests(unittest.TestCase):
     @patch("vc_audit_tool.agent.research.DDGS", new=None)
     @patch("vc_audit_tool.agent.research.USASpendingSource")
     @patch("vc_audit_tool.agent.research.FormDSource")
-    def test_incomplete_research_returns_422(
+    def test_incomplete_research_returns_200_with_partial_payload(
         self, mock_formd_cls: MagicMock, mock_usa_cls: MagicMock
     ) -> None:
-        """When agent cannot assemble complete inputs, return 422."""
+        """When incomplete, return metadata-rich partial payload (HTTP 200)."""
         mock_formd_cls.return_value.search.return_value = []
         mock_usa_cls.return_value.search.return_value = []
 
@@ -1346,8 +1439,11 @@ class ResearchEndpointTests(unittest.TestCase):
                 content=json.dumps({"company_name": "TestCo"}),
             )
 
-        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
+        self.assertIsNone(data["assembled_request"])
+        self.assertIn("best_available_methodology", data)
+        self.assertIn("missing_for_best_available", data)
         self.assertIn("missing_fields", data)
         self.assertIn("research_metadata", data)
 

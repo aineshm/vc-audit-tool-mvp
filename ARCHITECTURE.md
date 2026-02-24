@@ -838,7 +838,7 @@ company_name
 +--------+--------+    -> funding rounds (date, issuer, filing URL)
          v
 +-----------------+
-|  web_research    |  4 DuckDuckGo queries x 6 results
+|  web_research    |  7 DuckDuckGo queries x 6 results
 |                  |  -> regex extraction (always)
 |                  |  -> LLM extraction (if provider available)
 +--------+--------+
@@ -858,7 +858,7 @@ company_name
 The web research node uses a **multi-provider fallback chain**:
 
 ```
-GOOGLE_API_KEY set?    -> ChatGoogleGenerativeAI(gemini-2.0-flash)
+GOOGLE_API_KEY set?    -> ChatGoogleGenerativeAI(gemini-2.5-flash)
     | no
 OPENAI_API_KEY set?    -> ChatOpenAI(gpt-4o-mini)
     | no
@@ -871,21 +871,37 @@ Regex-only mode        -> still extracts valuations, revenue, dates
 
 Each provider is wrapped in `try/except` -- if init fails, the next provider is tried. The system always works because regex extraction runs unconditionally before LLM extraction.
 
+If no methodology can be fully assembled from research data, `POST /research` returns
+HTTP `200` with a partial payload (`assembled_request: null`,
+`best_available_methodology`, `missing_for_best_available`, `research_metadata`,
+and `web_facts`) instead of a 422 error.
+
 ### Data Sources
 
 | Source | Module | API | Data Extracted |
 |--------|--------|-----|---------------|
 | SEC Form D | `form_d.py` | EDGAR EFTS full-text search | Funding dates, issuer names, filing URLs |
 | USASpending.gov | `usaspending.py` | REST API | Contract amounts, agencies, descriptions |
-| DuckDuckGo | `research.py` | `duckduckgo-search` | Revenue, valuations, round dates, descriptions |
+| DuckDuckGo | `research.py` | `ddgs` (fallback: `duckduckgo-search`) | Revenue, valuations, round dates, descriptions |
 
 All sources use a 7-day disk cache with the same pattern as Epic 1-2 sources.
 
+For live SEC access, configure:
+
+```bash
+export VC_AUDIT_SEC_USER_AGENT="Your Name your-email@company.com"
+```
+
+EDGAR endpoints may return HTTP 403 when this is missing or generic.
+
 ### Web Research Strategy
 
-1. **Search phase**: 4 targeted queries run through DuckDuckGo:
+1. **Search phase**: 7 targeted queries run through DuckDuckGo:
    - `"{name} latest funding round valuation post-money"`
    - `"{name} annual revenue ARR"`
+   - `"{name} annual recurring revenue ARR 2024 2025"`
+   - `"{name} revenue run rate millions"`
+   - `"{name} revenue growth Series funding"`
    - `"{name} Series A B C D funding raised investors"`
    - `"{name} company overview private valuation"`
 
@@ -971,7 +987,8 @@ python -m pytest tests/ -q      # Unit tests only (integration deselected by def
 | `langgraph` | >= 1.0 | `research.py` -- agent state graph |
 | `langchain-core` | >= 0.3 | `research.py` -- message types |
 | `langchain-ollama` | >= 0.3 | `research.py` -- Ollama LLM provider |
-| `duckduckgo-search` | >= 7.0 | `research.py` -- free web search |
+| `ddgs` | >= 8.0 | `research.py` -- primary free web search |
+| `duckduckgo-search` | >= 7.0 | `research.py` -- legacy fallback search backend |
 | `pyyaml` | >= 6.0 | `reconciliation/selector.py` -- YAML rules config (Phase 2) |
 
 ### Optional LLM Dependencies (`pip install -e ".[llm]"`)
@@ -980,7 +997,7 @@ python -m pytest tests/ -q      # Unit tests only (integration deselected by def
 |---------|---------|----------|
 | `langchain-openai` | >= 0.3 | OpenAI GPT-4o-mini |
 | `langchain-anthropic` | >= 0.3 | Anthropic Claude 3.5 Haiku |
-| `langchain-google-genai` | >= 2.0 | Google Gemini 2.0 Flash |
+| `langchain-google-genai` | >= 2.0 | Google Gemini 2.5 Flash |
 
 ### Dev Dependencies
 

@@ -163,11 +163,16 @@ async def post_research(request: Request) -> JSONResponse:
         )
         return JSONResponse(
             {
-                "error": "Could not assemble complete valuation inputs.",
+                "assembled_request": None,
+                "best_available_methodology": research.best_available_methodology,
+                "missing_for_best_available": (
+                    research.missing_for_best_available or research.missing_fields
+                ),
                 "missing_fields": research.missing_fields,
                 "research_metadata": research.research_metadata,
+                "web_facts": research.web_facts or {},
             },
-            status_code=422,
+            status_code=200,
         )
 
     # Run the engine with assembled inputs

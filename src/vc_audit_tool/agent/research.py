@@ -16,7 +16,7 @@ Web research strategy
 DuckDuckGo search always runs first (free, no key).  Then an LLM
 extracts structured facts from the snippets.  Provider priority:
 
-  1. **Google Gemini 2.0 Flash**   (``GOOGLE_API_KEY``)   ~$0.001/req
+  1. **Google Gemini 2.5 Flash**   (``GOOGLE_API_KEY``)   ~$0.001/req
   2. **OpenAI GPT-4o-mini**        (``OPENAI_API_KEY``)   ~$0.002/req
   3. **Anthropic Claude 3.5 Haiku** (``ANTHROPIC_API_KEY``)  ~$0.003/req
   4. **Ollama local model**        (``OLLAMA_MODEL`` env)  $0 (local GPU)
@@ -46,10 +46,18 @@ logger = logging.getLogger(__name__)
 
 # Optional deps — imported at module level so they can be mocked in tests.
 # If not installed, the corresponding code paths degrade gracefully.
+_DDGS_BACKEND = ""
 try:
-    from duckduckgo_search import DDGS
+    from ddgs import DDGS  # type: ignore[import-not-found]
+
+    _DDGS_BACKEND = "ddgs"
 except ImportError:  # pragma: no cover
-    DDGS = None  # type: ignore[assignment,misc]
+    try:
+        from duckduckgo_search import DDGS  # type: ignore[import-not-found]
+
+        _DDGS_BACKEND = "duckduckgo_search"
+    except ImportError:  # pragma: no cover
+        DDGS = None  # type: ignore[assignment,misc]
 
 try:
     from langchain_core.messages import HumanMessage, SystemMessage
@@ -150,6 +158,8 @@ class ResearchState(TypedDict, total=False):
     assembled_request: dict[str, Any] | None
     research_metadata: dict[str, Any]
     missing_fields: list[str]
+    best_available_methodology: str | None
+    missing_for_best_available: list[str]
     error: str | None
 
 
@@ -170,6 +180,15 @@ class ResearchResult:
 
     missing_fields: list[str]
     """Required fields that could not be found."""
+
+    best_available_methodology: str | None = None
+    """Closest methodology candidate when no complete request could be assembled."""
+
+    missing_for_best_available: list[str] | None = None
+    """Missing inputs for ``best_available_methodology``."""
+
+    web_facts: dict[str, Any] | None = None
+    """Raw extracted web facts (useful for partial-response debugging)."""
 
     error: str | None = None
     """Top-level error message, if any."""
@@ -310,6 +329,11 @@ def _web_research_node(state: ResearchState) -> ResearchState:
     # ── Step 3: LLM extraction (first available provider wins) ─────────
     llm, model_label = _get_llm()
 
+    if llm is not None and (HumanMessage is None or SystemMessage is None):
+        logger.warning(
+            "web_research: LLM selected (%s) but langchain_core.messages is unavailable",
+            model_label,
+        )
     if llm is not None and HumanMessage is not None and SystemMessage is not None:
         _llm_extract(llm, model_label, name, combined_text, web_facts)
 
@@ -323,6 +347,9 @@ def _web_research_node(state: ResearchState) -> ResearchState:
 _SEARCH_QUERIES = [
     "{name} latest funding round valuation post-money",
     "{name} annual revenue ARR",
+    "{name} annual recurring revenue ARR 2024 2025",
+    "{name} revenue run rate millions",
+    "{name} revenue growth Series funding",
     "{name} Series A B C D funding raised investors",
     "{name} company overview private valuation",
 ]
@@ -339,19 +366,32 @@ def _ddg_search(
 
     raw_snippets: list[str] = []
     source_titles: list[str] = []
+    logger.debug("web_research: ddg backend=%s", _DDGS_BACKEND or "unknown")
     try:
         with DDGS() as ddgs:
             for q_template in _SEARCH_QUERIES:
                 q = q_template.format(name=company_name)
-                for r in ddgs.text(q, max_results=max_results_per_query):
-                    snippet = f"{r.get('title', '')} -- {r.get('body', '')}"
+                results = list(ddgs.text(q, max_results=max_results_per_query))
+                logger.debug("web_research: query=%r results=%d", q, len(results))
+                for r in results:
+                    title = str(r.get("title") or r.get("heading") or "").strip()
+                    body = str(
+                        r.get("body") or r.get("snippet") or r.get("description") or ""
+                    ).strip()
+                    if not title and not body:
+                        continue
+                    snippet = f"{title} -- {body}"
                     raw_snippets.append(snippet)
-                    title = r.get("title", "")
                     if title and title not in source_titles:
                         source_titles.append(title)
     except Exception as exc:
         logger.warning("web_research: DuckDuckGo search failed: %s", exc)
 
+    logger.debug(
+        "web_research: snippets_collected=%d unique_sources=%d",
+        len(raw_snippets),
+        len(source_titles),
+    )
     return raw_snippets, source_titles
 
 
@@ -366,10 +406,14 @@ def _get_llm() -> tuple[Any, str]:
     Priority: Gemini Flash → OpenAI 4o-mini → Anthropic Haiku → Ollama.
     Returns ``(None, "")`` when nothing is configured.
     """
-    # 1. Google Gemini 2.0 Flash (cheapest API option ~$0.001 / req)
+    # 1. Google Gemini 2.5 Flash (cheapest API option ~$0.001 / req)
+    if os.environ.get("GOOGLE_API_KEY") and ChatGoogleGenerativeAI is None:
+        logger.warning(
+            "web_research: GOOGLE_API_KEY is set but langchain_google_genai is not installed"
+        )
     if os.environ.get("GOOGLE_API_KEY") and ChatGoogleGenerativeAI is not None:
         try:
-            model = os.environ.get("GOOGLE_MODEL", "gemini-2.0-flash")
+            model = os.environ.get("GOOGLE_MODEL", "gemini-2.5-flash")
             llm: Any = ChatGoogleGenerativeAI(model=model, temperature=0, max_output_tokens=1024)
             logger.info("web_research: using Google %s", model)
             return llm, f"google/{model}"
@@ -377,6 +421,10 @@ def _get_llm() -> tuple[Any, str]:
             logger.warning("Google Gemini init failed (%s) -- trying next", exc)
 
     # 2. OpenAI GPT-4o-mini
+    if os.environ.get("OPENAI_API_KEY") and ChatOpenAI is None:
+        logger.warning(
+            "web_research: OPENAI_API_KEY is set but langchain_openai is not installed"
+        )
     if os.environ.get("OPENAI_API_KEY") and ChatOpenAI is not None:
         try:
             model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
@@ -387,6 +435,10 @@ def _get_llm() -> tuple[Any, str]:
             logger.warning("OpenAI init failed (%s) -- trying next", exc)
 
     # 3. Anthropic Claude 3.5 Haiku
+    if os.environ.get("ANTHROPIC_API_KEY") and ChatAnthropic is None:
+        logger.warning(
+            "web_research: ANTHROPIC_API_KEY is set but langchain_anthropic is not installed"
+        )
     if os.environ.get("ANTHROPIC_API_KEY") and ChatAnthropic is not None:
         try:
             model = os.environ.get("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022")
@@ -533,6 +585,30 @@ def _regex_extract(combined_text: str, web_facts: dict[str, Any]) -> None:
         web_facts["revenue_ltm"] = raw_num
         break
 
+    # Revenue proxy patterns often seen in press coverage:
+    # "ARR of $120 million", "$120M ARR", "run rate of $120 million".
+    if web_facts.get("revenue_ltm") is None:
+        arr_or_run_rate_pattern = re.compile(
+            r"(?:arr|annual recurring revenue|run\s*rate)[^.]{0,40}?"
+            r"\$\s*([\d,.]+)\s*(billion|million|B|M)"
+            r"|\$\s*([\d,.]+)\s*(billion|million|B|M)[^.]{0,40}?"
+            r"(?:arr|annual recurring revenue|run\s*rate)",
+            re.IGNORECASE,
+        )
+        for m in arr_or_run_rate_pattern.finditer(combined_text):
+            num_text = m.group(1) or m.group(3)
+            mult_text = m.group(2) or m.group(4)
+            if not num_text or not mult_text:
+                continue
+            raw_num = float(num_text.replace(",", ""))
+            multiplier = mult_text.lower()
+            if multiplier in ("billion", "b"):
+                raw_num = round(raw_num * 1_000_000_000)
+            elif multiplier in ("million", "m"):
+                raw_num = round(raw_num * 1_000_000)
+            web_facts["revenue_ltm"] = raw_num
+            break
+
     # Date near "funding round" or "Series"
     round_context = re.compile(
         r"(?:series|round|funding|raised)[^.]{0,100}?"
@@ -588,26 +664,76 @@ def _assemble_node(state: ResearchState) -> ResearchState:
     if web_facts.get("sources"):
         research_metadata["extracted_facts"]["web_sources"] = web_facts["sources"]
 
-    # Now try to assemble a complete request based on the chosen methodology
-    missing: list[str] = []
-    request_dict: dict[str, Any] | None = None
-
-    if not methodology:
-        # Auto-select: if we have Form D data, use last_round; otherwise, comps
-        if _has_last_round_data(web_facts, form_d_rounds):
-            methodology = "last_round_market_adjusted"
-        else:
-            methodology = "comparable_companies"
-
     description_hint_raw = state.get("description_hint", "")
     description_hint = (
         description_hint_raw.strip() if isinstance(description_hint_raw, str) else ""
     )
+    priorities = [
+        "last_round_market_adjusted",
+        "comparable_companies",
+        "last_round_multiple_ratchet",
+    ]
+    candidates = [methodology] if methodology else priorities
+    attempts: list[tuple[str, list[str]]] = []
+    assembled: dict[str, Any] | None = None
 
+    for candidate in candidates:
+        request_dict, missing = _assemble_for_methodology(
+            name,
+            as_of_date,
+            candidate,
+            sector,
+            web_facts,
+            form_d_rounds,
+            description_hint=description_hint,
+        )
+        attempts.append((candidate, missing))
+        if request_dict is not None and not missing:
+            assembled = request_dict
+            break
+
+    if assembled is not None:
+        best_methodology = assembled.get("methodology")
+        missing_for_best: list[str] = []
+        missing_fields: list[str] = []
+    elif attempts:
+        # Pick the method that is closest to complete (fewest missing fields);
+        # preserve candidate ordering as a stable tie-breaker.
+        attempt_rank = {m: idx for idx, m in enumerate(candidates)}
+        best_methodology, missing_for_best = min(
+            attempts,
+            key=lambda item: (len(set(item[1])), attempt_rank.get(item[0], 999)),
+        )
+        missing_fields = missing_for_best
+    else:
+        best_methodology = None
+        missing_for_best = []
+        missing_fields = []
+
+    return {
+        **state,
+        "assembled_request": assembled,
+        "research_metadata": research_metadata,
+        "missing_fields": missing_fields,
+        "best_available_methodology": best_methodology,
+        "missing_for_best_available": missing_for_best,
+    }
+
+
+def _assemble_for_methodology(
+    name: str,
+    as_of_date: str,
+    methodology: str,
+    sector: str,
+    web_facts: dict[str, Any],
+    form_d_rounds: list[dict[str, Any]],
+    *,
+    description_hint: str = "",
+) -> tuple[dict[str, Any] | None, list[str]]:
     if methodology == "last_round_market_adjusted":
-        request_dict, missing = _assemble_last_round(name, as_of_date, web_facts, form_d_rounds)
-    elif methodology in ("comparable_companies", "last_round_multiple_ratchet"):
-        request_dict, missing = _assemble_comps(
+        return _assemble_last_round(name, as_of_date, web_facts, form_d_rounds)
+    if methodology in ("comparable_companies", "last_round_multiple_ratchet"):
+        return _assemble_comps(
             name,
             as_of_date,
             methodology,
@@ -615,17 +741,7 @@ def _assemble_node(state: ResearchState) -> ResearchState:
             web_facts,
             description_hint=description_hint,
         )
-    else:
-        missing.append(f"unsupported methodology: {methodology}")
-
-    assembled = request_dict if request_dict and not missing else None
-
-    return {
-        **state,
-        "assembled_request": assembled,
-        "research_metadata": research_metadata,
-        "missing_fields": missing,
-    }
+    return None, [f"unsupported methodology: {methodology}"]
 
 
 def _has_last_round_data(web_facts: dict[str, Any], form_d_rounds: list[dict[str, Any]]) -> bool:
@@ -653,7 +769,8 @@ def _assemble_last_round(
     round_date = web_facts.get("last_round_date")
     if not round_date and form_d_rounds:
         round_date = form_d_rounds[0].get("filing_date")
-    if not round_date:
+    round_date_iso = _normalize_round_date(round_date)
+    if not round_date_iso:
         missing.append("last_round_date")
 
     if missing:
@@ -665,10 +782,40 @@ def _assemble_last_round(
         "as_of_date": as_of_date,
         "inputs": {
             "last_post_money_valuation": post_money,
-            "last_round_date": round_date,
+            "last_round_date": round_date_iso,
             "public_index": "NASDAQ_COMPOSITE",
         },
     }, []
+
+
+def _normalize_round_date(value: Any) -> str | None:
+    """Best-effort normalize funding-round dates to ISO ``YYYY-MM-DD``."""
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    # Remove common trailing punctuation from snippets, e.g. "January 2003)".
+    clean = raw.strip("()[]{}.,;:!\"' ")
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(clean, fmt).date().isoformat()
+        except ValueError:
+            pass
+    for fmt in ("%B %Y", "%b %Y"):
+        try:
+            dt = datetime.strptime(clean, fmt)
+            return f"{dt.year:04d}-{dt.month:02d}-01"
+        except ValueError:
+            pass
+    for fmt in ("%B %d %Y", "%b %d %Y", "%B %d, %Y", "%b %d, %Y"):
+        try:
+            return datetime.strptime(clean, fmt).date().isoformat()
+        except ValueError:
+            pass
+    if clean.isdigit() and len(clean) == 4:
+        return f"{clean}-01-01"
+    return None
 
 
 def _assemble_comps(
@@ -845,6 +992,9 @@ class CompanyResearchAgent:
             assembled_request=assembled,
             research_metadata=final_state.get("research_metadata", {}),
             missing_fields=final_state.get("missing_fields", []),
+            best_available_methodology=final_state.get("best_available_methodology"),
+            missing_for_best_available=final_state.get("missing_for_best_available"),
+            web_facts=final_state.get("web_facts"),
             error=final_state.get("error"),
             company_profile=company_profile,
         )

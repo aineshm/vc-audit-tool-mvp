@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -27,7 +28,21 @@ logger = logging.getLogger(__name__)
 _DEFAULT_CACHE_DIR = Path("data/edgar_cache")
 _TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 _SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
-_USER_AGENT = "vc-audit-tool/0.1 (aineshm@github.com)"
+_USER_AGENT = "vc-audit-tool/0.1 (contact@example.com)"
+
+
+def _sec_headers() -> dict[str, str]:
+    user_agent = os.environ.get("VC_AUDIT_SEC_USER_AGENT", _USER_AGENT).strip()
+    if user_agent == _USER_AGENT:
+        logger.warning(
+            "SEC requests using default User-Agent; set VC_AUDIT_SEC_USER_AGENT to a real contact "
+            "(e.g., 'YourName your.email@company.com') to reduce 403 risk."
+        )
+    return {
+        "User-Agent": user_agent,
+        "Accept-Encoding": "gzip, deflate",
+        "Host": "www.sec.gov",
+    }
 
 # SIC codes we understand, mapped to a human-readable label and our
 # internal sector key used by the comps methodology.
@@ -169,11 +184,14 @@ class EdgarCompanyUniverse:
         logger.info("fetching company_tickers.json from EDGAR")
         resp = httpx.get(
             _TICKERS_URL,
-            headers={"User-Agent": _USER_AGENT},
+            headers=_sec_headers(),
             timeout=30,
         )
         if resp.status_code != 200:
-            raise DataSourceError(f"EDGAR company_tickers.json returned HTTP {resp.status_code}")
+            raise DataSourceError(
+                "EDGAR company_tickers.json returned HTTP "
+                f"{resp.status_code}. Set VC_AUDIT_SEC_USER_AGENT to a valid contact string."
+            )
 
         data: dict[str, dict[str, str]] = resp.json()
         self._tickers_map = data
@@ -204,7 +222,7 @@ class EdgarCompanyUniverse:
             f"&output=atom"
         )
         logger.info("fetching EDGAR companies for SIC %s", sic_code)
-        resp = httpx.get(url, headers={"User-Agent": _USER_AGENT}, timeout=30)
+        resp = httpx.get(url, headers=_sec_headers(), timeout=30)
         if resp.status_code != 200:
             raise DataSourceError(
                 f"EDGAR company search returned HTTP {resp.status_code} for SIC {sic_code}"
