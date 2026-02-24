@@ -21,6 +21,7 @@ from vc_audit_tool.interfaces import ComparableCompanySource, MarketIndexSource
 from vc_audit_tool.methodologies.base import MethodologyContext, ValuationMethodology
 from vc_audit_tool.methodologies.berkus import BerkusMethodology
 from vc_audit_tool.methodologies.comps import ComparableCompaniesMethodology
+from vc_audit_tool.methodologies.direct_valuation import DirectValuationMethodology
 from vc_audit_tool.methodologies.last_round import LastRoundMarketAdjustedMethodology
 from vc_audit_tool.methodologies.multiple_ratchet import LastRoundMultipleRatchetMethodology
 from vc_audit_tool.methodologies.scorecard import ScorecardMethodology
@@ -91,6 +92,7 @@ class ValuationEngine:
             comps_source=resolved_comps,
         )
         self._methodologies: dict[str, ValuationMethodology] = {
+            DirectValuationMethodology.name: DirectValuationMethodology(),
             LastRoundMarketAdjustedMethodology.name: LastRoundMarketAdjustedMethodology(),
             ComparableCompaniesMethodology.name: ComparableCompaniesMethodology(),
             LastRoundMultipleRatchetMethodology.name: LastRoundMultipleRatchetMethodology(),
