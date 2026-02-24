@@ -247,9 +247,7 @@ class FormDSource:
                 else ""
             )
             if accession_nodash and primary_doc:
-                source_url = (
-                    f"{_FILING_BASE_URL}/{int(cik)}/{accession_nodash}/{primary_doc}"
-                )
+                source_url = f"{_FILING_BASE_URL}/{int(cik)}/{accession_nodash}/{primary_doc}"
             elif accession_nodash:
                 source_url = f"{_FILING_BASE_URL}/{int(cik)}/{accession_nodash}/"
             else:

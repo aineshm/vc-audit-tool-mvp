@@ -86,9 +86,7 @@ class ValuationEngineTests(unittest.TestCase):
                 super().__init__()
                 self.last_target_description: str | None = None
 
-            def list_by_sector(
-                self, sector: str, *, target_description: str | None = None
-            ) -> list:  # type: ignore[override]
+            def list_by_sector(self, sector: str, *, target_description: str | None = None) -> list:  # type: ignore[override]
                 self.last_target_description = target_description
                 return super().list_by_sector(sector, target_description=target_description)
 

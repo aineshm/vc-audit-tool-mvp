@@ -128,9 +128,7 @@ class EdgarYFinanceComparableCompanySource:
 
         # Step 3: Rank by embedding similarity (if target description provided)
         effective_target_description = (
-            target_description
-            if target_description is not None
-            else self._target_description
+            target_description if target_description is not None else self._target_description
         )
         if effective_target_description:
             candidates = [
@@ -141,9 +139,7 @@ class EdgarYFinanceComparableCompanySource:
                 }
                 for m in valid_metrics
             ]
-            ranked = self._ranker.rank(
-                effective_target_description, candidates, top_k=self._top_k
-            )
+            ranked = self._ranker.rank(effective_target_description, candidates, top_k=self._top_k)
             # Reorder valid_metrics to match ranking
             metrics_by_ticker = {m.ticker: m for m in valid_metrics}
             ordered_metrics = [

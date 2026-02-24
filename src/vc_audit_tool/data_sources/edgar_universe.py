@@ -44,6 +44,7 @@ def _sec_headers() -> dict[str, str]:
         "Host": "www.sec.gov",
     }
 
+
 # SIC codes we understand, mapped to a human-readable label and our
 # internal sector key used by the comps methodology.
 SIC_SECTOR_MAP: dict[str, str] = {

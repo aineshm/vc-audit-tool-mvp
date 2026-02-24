@@ -422,9 +422,7 @@ def _get_llm() -> tuple[Any, str]:
 
     # 2. OpenAI GPT-4o-mini
     if os.environ.get("OPENAI_API_KEY") and ChatOpenAI is None:
-        logger.warning(
-            "web_research: OPENAI_API_KEY is set but langchain_openai is not installed"
-        )
+        logger.warning("web_research: OPENAI_API_KEY is set but langchain_openai is not installed")
     if os.environ.get("OPENAI_API_KEY") and ChatOpenAI is not None:
         try:
             model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
@@ -665,9 +663,7 @@ def _assemble_node(state: ResearchState) -> ResearchState:
         research_metadata["extracted_facts"]["web_sources"] = web_facts["sources"]
 
     description_hint_raw = state.get("description_hint", "")
-    description_hint = (
-        description_hint_raw.strip() if isinstance(description_hint_raw, str) else ""
-    )
+    description_hint = description_hint_raw.strip() if isinstance(description_hint_raw, str) else ""
     priorities = [
         "last_round_market_adjusted",
         "comparable_companies",

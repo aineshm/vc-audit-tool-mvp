@@ -38,9 +38,7 @@ _TRANSIENT_ERROR_MARKERS = (
     "remote end closed",
 )
 
-_NON_TRANSIENT_ERROR_MARKERS = (
-    "no data returned by yfinance",
-)
+_NON_TRANSIENT_ERROR_MARKERS = ("no data returned by yfinance",)
 
 # Lazy but patchable — same pattern as yfinance_market_index.py
 yf: ModuleType | None = None
