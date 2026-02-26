@@ -48,7 +48,12 @@ def _resolve_berkus_factors(inputs: dict[str, Any]) -> dict[str, Any]:
     normalized: dict[str, Any] = {}
     raw_key_for_canonical: dict[str, str] = {}
     used_legacy: list[str] = []
-    for key, value in factors_obj.items():
+    for raw_key, value in factors_obj.items():
+        if not isinstance(raw_key, str):
+            raise ValidationError(
+                f"Factor key must be a string, received {type(raw_key).__name__}."
+            )
+        key = raw_key
         canonical = _LEGACY_BERKUS_ALIASES.get(key, key)
         if canonical in normalized and raw_key_for_canonical[canonical] != key:
             raise ValidationError(

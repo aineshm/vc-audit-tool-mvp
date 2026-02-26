@@ -11,6 +11,8 @@ import logging
 import os
 from typing import Any
 
+from vc_audit_tool.agent.llm_config import load_llm_chain
+
 logger = logging.getLogger(__name__)
 
 # ── Optional LLM provider imports ────────────────────────────────────────
@@ -41,6 +43,14 @@ try:
 except ImportError:
     ChatOllama = None  # type: ignore[assignment,misc,unused-ignore]
 
+__all__ = [
+    "HumanMessage",
+    "SystemMessage",
+    "_LLM_SYSTEM_PROMPT",
+    "_get_llm",
+    "_llm_extract_structured",
+]
+
 
 # ── System prompt ────────────────────────────────────────────────────────
 
@@ -63,38 +73,48 @@ _LLM_SYSTEM_PROMPT = (
 
 def _get_llm() -> tuple[Any, str]:
     """Return (llm_instance, model_label) for the highest-priority available provider."""
-    if os.environ.get("GOOGLE_API_KEY") and ChatGoogleGenerativeAI is not None:
-        try:
-            model = os.environ.get("GOOGLE_MODEL", "gemini-2.5-flash")
-            llm: Any = ChatGoogleGenerativeAI(model=model, temperature=0, max_output_tokens=1024)
-            return llm, f"google/{model}"
-        except Exception as exc:
-            logger.warning("Google Gemini init failed (%s)", exc)
+    model_env_by_provider = {
+        "google": "GOOGLE_MODEL",
+        "openai": "OPENAI_MODEL",
+        "anthropic": "ANTHROPIC_MODEL",
+        "ollama": "OLLAMA_MODEL",
+    }
 
-    if os.environ.get("OPENAI_API_KEY") and ChatOpenAI is not None:
-        try:
-            model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-            llm = ChatOpenAI(model=model, temperature=0)
-            return llm, f"openai/{model}"
-        except Exception as exc:
-            logger.warning("OpenAI init failed (%s)", exc)
+    for provider in load_llm_chain():
+        if not os.environ.get(provider.env_key):
+            continue
 
-    if os.environ.get("ANTHROPIC_API_KEY") and ChatAnthropic is not None:
+        model_env = model_env_by_provider.get(provider.name)
+        model = (
+            os.environ.get(model_env, provider.model_default)
+            if model_env
+            else provider.model_default
+        )
         try:
-            model = os.environ.get("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022")
-            llm = ChatAnthropic(model=model, temperature=0, max_tokens=1024)
-            return llm, f"anthropic/{model}"
+            if provider.name == "google" and ChatGoogleGenerativeAI is not None:
+                llm: Any = ChatGoogleGenerativeAI(
+                    model=model,
+                    temperature=0,
+                    max_output_tokens=1024,
+                )
+                return llm, f"google/{model}"
+            if provider.name == "openai" and ChatOpenAI is not None:
+                llm = ChatOpenAI(model=model, temperature=0)
+                return llm, f"openai/{model}"
+            if provider.name == "anthropic" and ChatAnthropic is not None:
+                llm = ChatAnthropic(model=model, temperature=0, max_tokens=1024)
+                return llm, f"anthropic/{model}"
+            if provider.name == "ollama" and ChatOllama is not None:
+                base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+                llm = ChatOllama(
+                    model=model,
+                    base_url=base_url,
+                    temperature=0,
+                    num_predict=512,
+                )
+                return llm, f"ollama/{model}"
         except Exception as exc:
-            logger.warning("Anthropic init failed (%s)", exc)
-
-    ollama_model = os.environ.get("OLLAMA_MODEL", "")
-    if ollama_model and ChatOllama is not None:
-        try:
-            base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-            llm = ChatOllama(model=ollama_model, base_url=base_url, temperature=0, num_predict=512)
-            return llm, f"ollama/{ollama_model}"
-        except Exception as exc:
-            logger.warning("Ollama init failed (%s)", exc)
+            logger.warning("%s init failed (%s)", provider.name.capitalize(), exc)
 
     return None, ""
 

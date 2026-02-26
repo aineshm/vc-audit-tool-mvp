@@ -194,3 +194,33 @@ class CompanyResearchAgent:
             error=final_state.get("error"),
             company_profile=company_profile,
         )
+
+
+__all__ = [
+    "CompanyResearchAgent",
+    "ResearchResult",
+    "ResearchState",
+    "_KEYWORD_SECTORS",
+    "_LLM_SYSTEM_PROMPT",
+    "_get_llm",
+    "_llm_extract_structured",
+    "_assemble_node",
+    "_assemble_direct_valuation",
+    "_assemble_last_round",
+    "_assemble_comps",
+    "_try_assemble",
+    "_normalize_round_date",
+    "_has_last_round_data",
+    "_parse_company_node",
+    "_form_d_node",
+    "_contracts_node",
+    "_web_research_node",
+    "_DDGS_BACKEND",
+    "_SEARCH_QUERIES",
+    "DDGS",
+    "_ddg_search",
+    "_merge_llm_into_package",
+    "_extract_best_post_money_from_package",
+    "_extract_last_post_money_valuation",
+    "_extract_last_round_amount_raised",
+]

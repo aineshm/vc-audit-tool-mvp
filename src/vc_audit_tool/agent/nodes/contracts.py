@@ -15,7 +15,7 @@ def _contracts_node(state: ResearchState) -> ResearchState:
     name = state.get("normalised_name", state.get("company_name", ""))
     if not name:
         # Return empty dict (no-op update) — safe for parallel fan-out.
-        return {}  # type: ignore[return-value]
+        return {}
     try:
         source = USASpendingSource()
         contracts = source.search(name)
@@ -25,7 +25,7 @@ def _contracts_node(state: ResearchState) -> ResearchState:
         contracts_dicts = []
         total = None
     # Return only the keys this node produces so parallel siblings can merge cleanly.
-    return {  # type: ignore[return-value]
+    return {
         "government_contracts": contracts_dicts,
         "government_contracts_usd": total,
     }

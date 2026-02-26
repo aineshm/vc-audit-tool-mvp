@@ -94,7 +94,16 @@ async def post_research(request: Request) -> JSONResponse:
 
     engine = request.app.state.engine
     try:
-        result = engine.evaluate_from_dict(research.assembled_request)  # type: ignore[arg-type]
+        assembled_request = research.assembled_request
+        if assembled_request is None:
+            return JSONResponse(
+                {
+                    "error": "Research returned no assembled request.",
+                    "research_metadata": research.research_metadata,
+                },
+                status_code=400,
+            )
+        result = engine.evaluate_from_dict(assembled_request)
         result_dict = result.to_dict()
         result_dict["research_metadata"] = research.research_metadata
         elapsed_ms = (time.monotonic() - start) * 1000

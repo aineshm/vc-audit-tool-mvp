@@ -1,0 +1,35 @@
+# LLM provider fallback chain — evaluated in order, first available wins.
+# Fields mirror LLMProviderConfig dataclass in llm_config.py.
+
+providers:
+  - name: google
+    env_key: GOOGLE_API_KEY
+    model_default: gemini-2.5-flash
+    langchain_class: langchain_google_genai.ChatGoogleGenerativeAI
+    max_retries: 2
+    cost_per_1k_input_usd: 0.000075   # Gemini 1.5 Flash approximate pricing
+    cost_per_1k_output_usd: 0.0003
+
+  - name: openai
+    env_key: OPENAI_API_KEY
+    model_default: gpt-4o-mini
+    langchain_class: langchain_openai.ChatOpenAI
+    max_retries: 2
+    cost_per_1k_input_usd: 0.00015
+    cost_per_1k_output_usd: 0.0006
+
+  - name: anthropic
+    env_key: ANTHROPIC_API_KEY
+    model_default: claude-3-5-haiku-20241022
+    langchain_class: langchain_anthropic.ChatAnthropic
+    max_retries: 2
+    cost_per_1k_input_usd: 0.0008
+    cost_per_1k_output_usd: 0.004
+
+  - name: ollama
+    env_key: OLLAMA_MODEL
+    model_default: llama3.2
+    langchain_class: langchain_ollama.ChatOllama
+    max_retries: 2
+    cost_per_1k_input_usd: 0.0
+    cost_per_1k_output_usd: 0.0
