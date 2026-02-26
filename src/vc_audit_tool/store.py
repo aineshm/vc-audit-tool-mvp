@@ -21,6 +21,11 @@ class ValuationStore:
         self._db_path = db_path
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        # WAL mode allows concurrent readers alongside a writer and is safe
+        # for the asyncio.to_thread usage pattern in the FastAPI server.
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        # Retry for up to 5 s when the database is locked by another writer.
+        self._conn.execute("PRAGMA busy_timeout=5000")
         self._ensure_schema()
 
     # ── public API ──
@@ -91,5 +96,12 @@ class ValuationStore:
                 payload         TEXT NOT NULL
             )
             """
+        )
+        # Index for the list_runs ORDER BY rowid DESC query — rowid is the
+        # implicit integer primary key on SQLite tables, so this is already
+        # fast.  The explicit index on generated_at_utc supports future
+        # time-range filtering queries.
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_runs_generated_at ON runs (generated_at_utc DESC)"
         )
         self._conn.commit()

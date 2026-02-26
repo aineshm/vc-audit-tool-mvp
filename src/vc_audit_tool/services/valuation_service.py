@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -22,20 +23,26 @@ async def read_json(request: Request) -> dict[str, Any]:
     return result
 
 
-def run_valuation(
+async def run_valuation(
     payload: dict[str, Any],
     engine: Any,
     store: Any,
     *,
     persist: bool = False,
 ) -> JSONResponse:
-    """Run the engine and optionally persist to the store."""
+    """Run the engine off the event loop and optionally persist to the store.
+
+    The yfinance / EDGAR fetches inside ``engine.evaluate_from_dict`` are
+    synchronous blocking I/O.  We push them to the default thread-pool executor
+    with ``asyncio.to_thread`` so FastAPI's event loop stays free to handle
+    other requests concurrently.
+    """
     start = time.monotonic()
     try:
-        result = engine.evaluate_from_dict(payload)
+        result = await asyncio.to_thread(engine.evaluate_from_dict, payload)
         result_dict = result.to_dict()
         if persist:
-            store.save(result_dict)
+            await asyncio.to_thread(store.save, result_dict)
         elapsed_ms = (time.monotonic() - start) * 1000
         logger.info(
             "valuation_ok company=%s methodology=%s request_id=%s elapsed_ms=%.1f",

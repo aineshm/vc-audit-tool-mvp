@@ -56,7 +56,8 @@ _SEARCH_QUERIES = [
 def _web_research_node(state: ResearchState) -> ResearchState:
     name = state.get("normalised_name", state.get("company_name", ""))
     if not name:
-        return state
+        # Return empty dict (no-op update) — safe for parallel fan-out.
+        return {}  # type: ignore[return-value]
 
     as_of_raw = state.get("as_of_date", "")
     try:
@@ -104,8 +105,8 @@ def _web_research_node(state: ResearchState) -> ResearchState:
         "extraction_timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
-    return {
-        **state,
+    # Return only the keys this node produces so parallel siblings can merge cleanly.
+    return {  # type: ignore[return-value]
         "raw_snippets": raw_snippets,
         "source_titles": source_titles,
         "evidence_package": pkg.to_dict(),

@@ -33,5 +33,6 @@ def isolated_store(tmp_path: Path) -> Generator[ValuationStore]:
     """
     store = ValuationStore(tmp_path / "test.db")
     server_module.store = store
+    server_module.app.state.store = store
     yield store
     store.close()

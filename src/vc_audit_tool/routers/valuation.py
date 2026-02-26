@@ -39,7 +39,7 @@ async def post_value(request: Request) -> JSONResponse:
     except (json.JSONDecodeError, Exception) as exc:
         logger.warning("bad_json error=%s", exc)
         return JSONResponse({"error": f"Invalid JSON: {exc}"}, status_code=400)
-    return run_valuation(payload, request.app.state.engine, request.app.state.store)
+    return await run_valuation(payload, request.app.state.engine, request.app.state.store)
 
 
 @router.post("/api/value")
@@ -50,7 +50,9 @@ async def api_value(request: Request) -> JSONResponse:
     except (json.JSONDecodeError, Exception) as exc:
         logger.warning("bad_json error=%s", exc)
         return JSONResponse({"error": f"Invalid JSON: {exc}"}, status_code=400)
-    return run_valuation(payload, request.app.state.engine, request.app.state.store, persist=True)
+    return await run_valuation(
+        payload, request.app.state.engine, request.app.state.store, persist=True
+    )
 
 
 @router.get("/api/runs")

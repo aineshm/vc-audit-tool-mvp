@@ -100,6 +100,14 @@ class CompanyResearchAgent:
     3. Pick the methodology that best fits the evidence
     4. For companies with strong public valuation signals (SpaceX, Stripe, etc.)
        the ``direct_valuation`` methodology is automatically selected.
+
+    Graph topology (fan-out / fan-in for parallel I/O):
+
+        parse_company
+        ┌─────┬──────────────┐
+       form_d  web_research  contracts   ← run concurrently
+        └─────┴──────────────┘
+              assemble
     """
 
     def __init__(self) -> None:
@@ -117,10 +125,17 @@ class CompanyResearchAgent:
         graph.add_node("contracts", _contracts_node)
         graph.add_node("assemble", _assemble_node)
 
+        # Fan-out: parse_company → {form_d, web_research, contracts} in parallel.
+        # LangGraph runs all nodes that become ready in the same super-step
+        # concurrently (in separate threads for sync nodes).  The three I/O
+        # nodes write to disjoint state keys so their outputs merge cleanly.
         graph.set_entry_point("parse_company")
         graph.add_edge("parse_company", "form_d")
-        graph.add_edge("form_d", "web_research")
-        graph.add_edge("web_research", "contracts")
+        graph.add_edge("parse_company", "web_research")
+        graph.add_edge("parse_company", "contracts")
+        # Fan-in: assemble waits for all three to complete.
+        graph.add_edge("form_d", "assemble")
+        graph.add_edge("web_research", "assemble")
         graph.add_edge("contracts", "assemble")
         graph.add_edge("assemble", END)
 

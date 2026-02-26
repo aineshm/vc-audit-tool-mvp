@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 def _contracts_node(state: ResearchState) -> ResearchState:
     name = state.get("normalised_name", state.get("company_name", ""))
     if not name:
-        return state
+        # Return empty dict (no-op update) — safe for parallel fan-out.
+        return {}  # type: ignore[return-value]
     try:
         source = USASpendingSource()
         contracts = source.search(name)
@@ -23,4 +24,8 @@ def _contracts_node(state: ResearchState) -> ResearchState:
     except DataSourceError:
         contracts_dicts = []
         total = None
-    return {**state, "government_contracts": contracts_dicts, "government_contracts_usd": total}
+    # Return only the keys this node produces so parallel siblings can merge cleanly.
+    return {  # type: ignore[return-value]
+        "government_contracts": contracts_dicts,
+        "government_contracts_usd": total,
+    }

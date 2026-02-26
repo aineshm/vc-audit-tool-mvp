@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 def _form_d_node(state: ResearchState) -> ResearchState:
     name = state.get("normalised_name", state.get("company_name", ""))
     if not name:
-        return state
+        # Return empty dict (no-op update) — safe for parallel fan-out.
+        return {}  # type: ignore[return-value]
     try:
         source = FormDSource()
         rounds = source.search(name)
@@ -22,4 +23,5 @@ def _form_d_node(state: ResearchState) -> ResearchState:
     except DataSourceError as exc:
         logger.warning("form_d_node error: %s", exc)
         rounds_dicts = []
-    return {**state, "form_d_rounds": rounds_dicts}
+    # Return only the keys this node produces so parallel siblings can merge cleanly.
+    return {"form_d_rounds": rounds_dicts}  # type: ignore[return-value]

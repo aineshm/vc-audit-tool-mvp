@@ -13,7 +13,8 @@ def _parse_company_node(state: ResearchState) -> ResearchState:
     name = state.get("company_name", "")
     normalised = name.strip()
     if not normalised:
-        return {**state, "error": "company_name is required."}
+        # Return only the new keys — LangGraph merges with existing state.
+        return {"error": "company_name is required."}  # type: ignore[return-value]
 
     hint = state.get("description_hint", normalised).lower()
     sector = "enterprise_software"
@@ -36,4 +37,9 @@ def _parse_company_node(state: ResearchState) -> ResearchState:
             break
 
     logger.info("parse_company: name=%s sector=%s sic=%s", normalised, sector, sic)
-    return {**state, "normalised_name": normalised, "inferred_sector": sector, "inferred_sic": sic}
+    # Return only the keys this node sets — LangGraph merges with existing state.
+    return {  # type: ignore[return-value]
+        "normalised_name": normalised,
+        "inferred_sector": sector,
+        "inferred_sic": sic,
+    }
