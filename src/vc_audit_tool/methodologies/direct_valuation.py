@@ -90,8 +90,7 @@ class DirectValuationMethodology(ValuationMethodology):
 
         # Private-company discount (lower when secondary-market evidence exists)
         has_secondary = any(
-            s.get("evidence_type") in ("secondary_market", "post_money_fresh")
-            for s in signals
+            s.get("evidence_type") in ("secondary_market", "post_money_fresh") for s in signals
         )
         default_discount = Decimal("10") if has_secondary else Decimal("20")
         private_discount_pct = parse_decimal(
@@ -135,8 +134,7 @@ class DirectValuationMethodology(ValuationMethodology):
                 f"source='{title}', date={date_s})"
             )
         derivation_steps.append(
-            f"Weighted-average gross estimate: "
-            f"${float(point_estimate) / 1e9:.3f}B"
+            f"Weighted-average gross estimate: ${float(point_estimate) / 1e9:.3f}B"
         )
         derivation_steps.append(
             f"Apply {float(private_discount_pct):.1f}% illiquidity discount "

@@ -98,10 +98,18 @@ if __name__ == "__main__":
 
 class ServerModeTests(unittest.TestCase):
     def tearDown(self) -> None:
-        # Restore deterministic engine for the rest of the test suite.
+        # Restore deterministic engine + a fresh in-memory store for the rest
+        # of the test suite.  main() patches both module globals and app.state,
+        # so we must reset all four references here.
         from vc_audit_tool import server as server_module
+        from vc_audit_tool.store import ValuationStore
 
-        server_module.engine = ValuationEngine.mock()
+        mock_engine = ValuationEngine.mock()
+        fresh_store = ValuationStore()
+        server_module.engine = mock_engine
+        server_module.store = fresh_store
+        server_module.app.state.engine = mock_engine
+        server_module.app.state.store = fresh_store
 
     def test_parser_defaults_to_live_mode(self) -> None:
         args = build_parser().parse_args([])
