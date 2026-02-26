@@ -91,6 +91,18 @@ class TestValuationStore(unittest.TestCase):
         runs = self.store.list_runs(limit=3)
         self.assertEqual(len(runs), 3)
 
+    def test_wal_journal_mode(self) -> None:
+        """Verify WAL journal_mode is enabled."""
+        cursor = self.store._conn.execute("PRAGMA journal_mode")
+        row = cursor.fetchone()
+        self.assertEqual(row[0].lower(), "wal")
+
+    def test_busy_timeout_set(self) -> None:
+        """Verify busy_timeout is set (store initializes without error)."""
+        cursor = self.store._conn.execute("PRAGMA busy_timeout")
+        row = cursor.fetchone()
+        self.assertEqual(row[0], 5000)
+
 
 if __name__ == "__main__":
     unittest.main()

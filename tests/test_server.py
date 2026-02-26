@@ -21,6 +21,11 @@ class ServerIntegrationTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
+        from vc_audit_tool import server as server_module
+
+        mock_engine = ValuationEngine.mock()
+        server_module.engine = mock_engine
+        server_module.app.state.engine = mock_engine
         cls.client = TestClient(app)
 
     # -- Health --
