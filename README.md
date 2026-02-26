@@ -43,6 +43,10 @@ python -m vc_audit_tool.cli cache clear --all              # wipe everything
 
 # Confidence report for a stored run (Epic 5)
 python -m vc_audit_tool.cli confidence <request-id>
+
+# Research-first valuation from company name
+python -m vc_audit_tool.cli research "Anthropic" --pretty
+python -m vc_audit_tool.cli research "SpaceX" --output spacex_research.json
 ```
 
 ### FastAPI Server
@@ -575,6 +579,10 @@ export OLLAMA_MODEL="llama3.2"
 
 The first available provider wins. If no LLM is configured, the agent still works using regex extraction from search snippets.
 
+Provider order/defaults are loaded from `config/llm_providers.yaml` (with hardcoded fallback defaults
+if the file is missing or malformed). This lets you change provider priority/model defaults without
+code changes.
+
 To install the optional LLM provider packages:
 
 ```bash
@@ -625,6 +633,12 @@ The system will then automatically:
 - Compute a fully auditable valuation with derivation steps and citations
 
 ### What's Next
+
+### Redesign Status
+
+The repository is following the incremental redesign baseline in `.claude/plan/stack-rethink.md`.
+Current cycle scope is stabilization + modularization (agent node split, test stability, async service hardening),
+not a full architecture rewrite.
 
 | Epic | Feature | Description |
 |------|---------|-------------|

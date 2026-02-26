@@ -75,6 +75,12 @@ The engine is **data-source agnostic**. It accepts any object satisfying the `Pr
 
 The **reconciliation layer** (Phase 2) sits above the valuation engine: it profiles the company, selects applicable methodologies with stage-based weights from a YAML config, runs each through the engine, and reconciles the results into a single concluded valuation with divergence analysis.
 
+### Redesign Baseline
+
+Incremental redesign work is tracked against `.claude/plan/stack-rethink.md`. The active path is
+stabilization + modularization (agent node split, async service hardening, deterministic tests), not
+a full rewrite of storage/routing/reconciliation in a single cycle.
+
 ### Endpoint Interaction Modes
 
 | Endpoint | Input Style | Methodology Selection | Sector Handling |
@@ -869,6 +875,9 @@ OLLAMA_MODEL set?      -> ChatOllama(local model)
 Regex-only mode        -> still extracts valuations, revenue, dates
 ```
 
+Provider ordering/default models are loaded from `config/llm_providers.yaml` (with hardcoded fallback
+defaults if this file is unavailable or malformed).
+
 Each provider is wrapped in `try/except` -- if init fails, the next provider is tried. The system always works because regex extraction runs unconditionally before LLM extraction.
 
 If no methodology can be fully assembled from research data, `POST /research` returns
@@ -910,6 +919,12 @@ EDGAR endpoints may return HTTP 403 when this is missing or generic.
 3. **LLM extraction** (when available): sends first 4,000 chars of search snippets with a system prompt requesting structured JSON with `revenue_ltm`, `last_round_date`, `last_round_amount_raised`, `last_post_money_valuation`, `company_description`, and `sources`.
 
 LLM results **override** regex results (they are more accurate), but regex provides a safety net when no LLM is configured.
+
+For deterministic/offline unit-test execution, set:
+
+```bash
+export VC_AUDIT_DISABLE_WEB_SEARCH=1
+```
 
 
 ---
