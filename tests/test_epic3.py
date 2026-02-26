@@ -1280,6 +1280,7 @@ class CompanyResearchAgentTests(unittest.TestCase):
                 "OLLAMA_MODEL",
             )
         }
+        env["VC_AUDIT_DISABLE_WEB_SEARCH"] = "1"
         with patch.dict(os.environ, env, clear=True):
             from vc_audit_tool.agent.research import CompanyResearchAgent
 
@@ -1352,6 +1353,7 @@ class CompanyResearchAgentTests(unittest.TestCase):
             "last_round_market_adjusted",
         )
 
+    @patch("vc_audit_tool.agent.nodes.web_research.DDGS", new=None)
     @patch("vc_audit_tool.agent.nodes.contracts.USASpendingSource")
     @patch("vc_audit_tool.agent.nodes.form_d.FormDSource")
     def test_agent_handles_exception_gracefully(
@@ -1372,6 +1374,7 @@ class CompanyResearchAgentTests(unittest.TestCase):
                 "OLLAMA_MODEL",
             )
         }
+        env["VC_AUDIT_DISABLE_WEB_SEARCH"] = "1"
         with patch.dict(os.environ, env, clear=True):
             from vc_audit_tool.agent.research import CompanyResearchAgent
 
@@ -1394,9 +1397,14 @@ class ResearchEndpointTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         from starlette.testclient import TestClient
 
-        from vc_audit_tool.server import app
+        from vc_audit_tool import server as server_module
+        from vc_audit_tool.engine import ValuationEngine
 
-        cls.client = TestClient(app)
+        mock_engine = ValuationEngine.mock()
+        server_module.engine = mock_engine
+        server_module.app.state.engine = mock_engine
+
+        cls.client = TestClient(server_module.app)
 
     def test_missing_company_name_returns_400(self) -> None:
         resp = self.client.post("/research", content=json.dumps({}))

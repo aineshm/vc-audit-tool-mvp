@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from datetime import date, datetime, timezone
 from typing import Any
@@ -25,17 +26,20 @@ logger = logging.getLogger(__name__)
 # ── Optional search backend ───────────────────────────────────────────────
 
 _DDGS_BACKEND = ""
+DDGS: Any = None
 try:
-    from ddgs import DDGS  # type: ignore[import-not-found]
+    from ddgs import DDGS as DDGSNew
 
+    DDGS = DDGSNew
     _DDGS_BACKEND = "ddgs"
 except ImportError:
     try:
-        from duckduckgo_search import DDGS  # type: ignore[import-not-found]
+        from duckduckgo_search import DDGS as DDGSOld
 
+        DDGS = DDGSOld
         _DDGS_BACKEND = "duckduckgo_search"
     except ImportError:
-        DDGS = None  # type: ignore[assignment,misc]
+        DDGS = None
 
 # ── Search query templates ────────────────────────────────────────────────
 
@@ -57,7 +61,7 @@ def _web_research_node(state: ResearchState) -> ResearchState:
     name = state.get("normalised_name", state.get("company_name", ""))
     if not name:
         # Return empty dict (no-op update) — safe for parallel fan-out.
-        return {}  # type: ignore[return-value]
+        return {}
 
     as_of_raw = state.get("as_of_date", "")
     try:
@@ -106,7 +110,7 @@ def _web_research_node(state: ResearchState) -> ResearchState:
     }
 
     # Return only the keys this node produces so parallel siblings can merge cleanly.
-    return {  # type: ignore[return-value]
+    return {
         "raw_snippets": raw_snippets,
         "source_titles": source_titles,
         "evidence_package": pkg.to_dict(),
@@ -121,6 +125,10 @@ def _ddg_search(
     company_name: str,
     max_results_per_query: int = 6,
 ) -> tuple[list[str], list[str]]:
+    if os.getenv("VC_AUDIT_DISABLE_WEB_SEARCH", "").lower() in {"1", "true", "yes"}:
+        logger.info("web_research: web search disabled by VC_AUDIT_DISABLE_WEB_SEARCH")
+        return [], []
+
     if DDGS is None:
         logger.info("web_research: duckduckgo not installed — skipping")
         return [], []
@@ -155,7 +163,7 @@ def _merge_llm_into_package(
     as_of: date,
 ) -> None:
     """If LLM found a post-money valuation not already in pkg, add it."""
-    from vc_audit_tool.data_sources.evidence_collector import _classify_evidence_type
+    from vc_audit_tool.data_sources.evidence_patterns import _classify_evidence_type
 
     pm = llm_facts.get("last_post_money_valuation")
     if pm and isinstance(pm, (int, float)) and pm > 1_000_000:
@@ -227,3 +235,16 @@ def _extract_last_round_amount_raised(snippets: list[str]) -> float | None:
             return num * 1_000_000_000
         return num * 1_000_000
     return None
+
+
+__all__ = [
+    "_DDGS_BACKEND",
+    "_SEARCH_QUERIES",
+    "DDGS",
+    "_ddg_search",
+    "_merge_llm_into_package",
+    "_extract_best_post_money_from_package",
+    "_extract_last_post_money_valuation",
+    "_extract_last_round_amount_raised",
+    "_web_research_node",
+]
