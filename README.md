@@ -172,7 +172,7 @@ Current status:
 ruff check:   ✅ All checks passed
 ruff format:  ✅ All files already formatted
 mypy:         ✅ Success: no issues found
-pytest:       ✅ 471 passed, 11 deselected (integration)
+pytest:       ✅ 508 passed, 11 deselected (integration)
 ```
 
 ---
