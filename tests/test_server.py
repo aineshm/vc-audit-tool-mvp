@@ -35,6 +35,26 @@ class ServerIntegrationTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "ok")
 
+    def test_request_id_echoed(self) -> None:
+        """X-Request-ID header is echoed back in the response."""
+        resp = self.client.get("/health", headers={"X-Request-ID": "test-123"})
+        self.assertEqual(resp.headers.get("x-request-id"), "test-123")
+
+    def test_request_id_generated_when_absent(self) -> None:
+        """A UUID request ID is generated if header not sent."""
+        resp = self.client.get("/health")
+        self.assertIn("x-request-id", resp.headers)
+
+    def test_health_extended_fields(self) -> None:
+        """Health endpoint returns extended status fields."""
+        resp = self.client.get("/health")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("version", data)
+        self.assertIn("store", data)
+        self.assertIn("llm_provider", data)
+        self.assertIn("pinecone_index", data)
+
     # -- Successful valuation --
 
     def test_post_valid_last_round(self) -> None:

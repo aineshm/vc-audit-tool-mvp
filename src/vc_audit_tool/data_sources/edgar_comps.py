@@ -26,6 +26,7 @@ from vc_audit_tool.data_sources.edgar_universe import (
 )
 from vc_audit_tool.data_sources.embedding_ranker import EmbeddingCompsRanker
 from vc_audit_tool.data_sources.mock import ComparableCompany
+from vc_audit_tool.data_sources.ranker_factory import get_ranker
 from vc_audit_tool.data_sources.yfinance_metrics import YFinanceMetricsFetcher
 from vc_audit_tool.exceptions import DataSourceError
 
@@ -70,7 +71,7 @@ class EdgarYFinanceComparableCompanySource:
         self._metrics = metrics or YFinanceMetricsFetcher(
             cache_dir=cache_root / "yfinance_metrics_cache"
         )
-        self._ranker = ranker or EmbeddingCompsRanker(cache_dir=cache_root / "embedding_cache")
+        self._ranker = ranker or get_ranker(cache_dir=cache_root / "embedding_cache")
         self._top_k = top_k
         self._target_description = target_description
         self.warnings: list[str] = []

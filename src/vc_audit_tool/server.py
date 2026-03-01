@@ -13,17 +13,24 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import uuid
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 
 from vc_audit_tool.engine import ValuationEngine
+from vc_audit_tool.logging_config import configure_logging, reset_request_id, set_request_id
 from vc_audit_tool.routers import reconcile as reconcile_router
 from vc_audit_tool.routers import research as research_router
 from vc_audit_tool.routers import valuation as valuation_router
 from vc_audit_tool.store import ValuationStore
 
 logger = logging.getLogger("vc_audit_tool.server")
+
+# Configure structured logging at module level
+configure_logging()
 
 # ---------------------------------------------------------------------------
 # Module-level singletons (kept here for backward compatibility with tests
@@ -44,6 +51,19 @@ app = FastAPI(
 # request.app.state.engine / request.app.state.store without circular imports.
 app.state.engine = engine
 app.state.store = store
+
+
+@app.middleware("http")
+async def _request_id_middleware(request: Request, call_next: Callable[..., Any]) -> Response:
+    rid = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+    token = set_request_id(rid)
+    try:
+        response: Response = await call_next(request)
+    finally:
+        reset_request_id(token)
+    response.headers["X-Request-ID"] = rid
+    return response
+
 
 app.include_router(valuation_router.router)
 app.include_router(research_router.router)

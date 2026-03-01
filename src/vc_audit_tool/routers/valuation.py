@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse
 
+from vc_audit_tool.logging_config import get_request_id
 from vc_audit_tool.services.valuation_service import read_json, run_valuation
 
 logger = logging.getLogger("vc_audit_tool.routers.valuation")
@@ -19,10 +22,39 @@ router = APIRouter()
 _STATIC_DIR = Path(__file__).parent.parent / "static"
 
 
+def _detect_llm_provider() -> str:
+    """Detect which LLM provider is configured."""
+    for name, env in [
+        ("google", "GOOGLE_API_KEY"),
+        ("openai", "OPENAI_API_KEY"),
+        ("anthropic", "ANTHROPIC_API_KEY"),
+        ("ollama", "OLLAMA_MODEL"),
+    ]:
+        if os.getenv(env):
+            return name
+    return "regex"
+
+
 @router.get("/health")
-def health() -> dict[str, str]:
-    """Liveness probe."""
-    return {"status": "ok"}
+def health() -> dict[str, Any]:
+    """Liveness probe with extended status information."""
+    try:
+        version = importlib.metadata.version("vc-audit-tool")
+    except importlib.metadata.PackageNotFoundError:
+        version = "dev"
+
+    pinecone_index = "disabled"
+    if os.getenv("PINECONE_API_KEY"):
+        pinecone_index = os.getenv("PINECONE_INDEX_NAME", "disabled")
+
+    return {
+        "status": "ok",
+        "version": version,
+        "store": "sqlite_wal",
+        "llm_provider": _detect_llm_provider(),
+        "pinecone_index": pinecone_index,
+        "request_id": get_request_id(),
+    }
 
 
 @router.get("/")

@@ -49,6 +49,7 @@ __all__ = [
     "_LLM_SYSTEM_PROMPT",
     "_get_llm",
     "_llm_extract_structured",
+    "_extract_json_robust",
 ]
 
 
@@ -95,14 +96,14 @@ def _get_llm() -> tuple[Any, str]:
                 llm: Any = ChatGoogleGenerativeAI(
                     model=model,
                     temperature=0,
-                    max_output_tokens=1024,
+                    max_output_tokens=2048,
                 )
                 return llm, f"google/{model}"
             if provider.name == "openai" and ChatOpenAI is not None:
                 llm = ChatOpenAI(model=model, temperature=0)
                 return llm, f"openai/{model}"
             if provider.name == "anthropic" and ChatAnthropic is not None:
-                llm = ChatAnthropic(model=model, temperature=0, max_tokens=1024)
+                llm = ChatAnthropic(model=model, temperature=0, max_tokens=2048)
                 return llm, f"anthropic/{model}"
             if provider.name == "ollama" and ChatOllama is not None:
                 base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -122,6 +123,50 @@ def _get_llm() -> tuple[Any, str]:
 # ── Structured extraction ────────────────────────────────────────────────
 
 
+def _extract_json_robust(text: str) -> dict[str, Any] | None:
+    """Try multiple strategies to extract a valid JSON object from LLM output.
+
+    Handles: markdown code fences, leading/trailing whitespace, truncation
+    mid-value, and trailing commas before the closing brace.
+    """
+    # Strip markdown fences
+    if "```" in text:
+        lines = text.split("\n")
+        text = "\n".join(line for line in lines if not line.strip().startswith("```"))
+
+    text = text.strip()
+
+    # Strategy 1: direct parse
+    try:
+        result: dict[str, Any] = json.loads(text)
+        return result
+    except json.JSONDecodeError:
+        pass
+
+    # Strategy 2: find outermost { } bounds
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end > start:
+        try:
+            result = json.loads(text[start : end + 1])
+            return result
+        except json.JSONDecodeError:
+            pass
+
+    # Strategy 3: truncation recovery — walk back from end to find a complete field
+    if start != -1:
+        for end_pos in range(len(text) - 1, start, -1):
+            if text[end_pos] in (",", "\n"):
+                candidate = text[start:end_pos].rstrip(", \n") + "\n}"
+                try:
+                    result = json.loads(candidate)
+                    return result
+                except json.JSONDecodeError:
+                    continue
+
+    return None
+
+
 def _llm_extract_structured(
     llm: Any,
     model_label: str,
@@ -139,11 +184,10 @@ def _llm_extract_structured(
         )
         content = response.content
         if isinstance(content, str):
-            text = content.strip()
-            if text.startswith("```"):
-                lines = text.split("\n")
-                text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
-            parsed: dict[str, Any] = json.loads(text)
+            parsed = _extract_json_robust(content)
+            if parsed is None:
+                logger.warning("LLM extraction failed: could not parse JSON from response")
+                return {}
             parsed["_model_label"] = model_label
             return parsed
     except Exception as exc:
