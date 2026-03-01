@@ -28,7 +28,7 @@ EVIDENCE_TYPES = {
 _DIRECT_VALUATION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(
-            r"\$([\d,.]+)\s*(trillion|billion|trillion|T|B)\b"
+            r"\$([\d,.]+)\s*(trillion|billion|T|B)\b"
             r"[^.]{0,80}?(?:valuation|valued|worth|value|price)",
             re.IGNORECASE,
         ),
@@ -152,9 +152,13 @@ def _parse_relative_date(text: str, as_of: date) -> str | None:
     if "last year" in matched:
         return (as_of - timedelta(days=365)).isoformat()
 
-    # "N days/weeks/months/years ago"
-    n = int(m.group(1))
-    unit = m.group(2).lower()
+    # "N days/weeks/months/years ago" — group(1) and group(2) are always set here.
+    group1 = m.group(1)
+    group2 = m.group(2)
+    if group1 is None or group2 is None:
+        return None
+    n = int(group1)
+    unit = group2.lower()
     if unit == "day":
         delta = timedelta(days=n)
     elif unit == "week":
@@ -253,16 +257,84 @@ def _recency_multiplier(
     return 0.30
 
 
+# ── Source reliability tiers ──────────────────────────────────────────────
+# Maps source title keywords (lowercased substring match) to (multiplier, tier_label).
+# Checked in order; first match wins.
+
+SOURCE_RELIABILITY_TIERS: list[tuple[str, float, str]] = [
+    # Tier 1 (0.95): Premier financial press — factual, editor-reviewed
+    ("bloomberg", 0.95, "tier_1_premier_financial"),
+    ("reuters", 0.95, "tier_1_premier_financial"),
+    ("wall street journal", 0.95, "tier_1_premier_financial"),
+    ("wsj.com", 0.95, "tier_1_premier_financial"),
+    ("financial times", 0.95, "tier_1_premier_financial"),
+    ("ft.com", 0.95, "tier_1_premier_financial"),
+    ("new york times", 0.95, "tier_1_premier_financial"),
+    ("nytimes.com", 0.95, "tier_1_premier_financial"),
+    ("cnbc", 0.95, "tier_1_premier_financial"),
+    ("forbes", 0.95, "tier_1_premier_financial"),
+    ("sec.gov", 0.95, "tier_1_premier_financial"),
+    # Tier 2 (0.85): Specialist tech/VC press — strong editorial
+    ("techcrunch", 0.85, "tier_2_specialist_tech"),
+    ("axios", 0.85, "tier_2_specialist_tech"),
+    ("the information", 0.85, "tier_2_specialist_tech"),
+    ("theinformation.com", 0.85, "tier_2_specialist_tech"),
+    ("crunchbase", 0.85, "tier_2_specialist_tech"),
+    ("pitchbook", 0.85, "tier_2_specialist_tech"),
+    ("fortune", 0.85, "tier_2_specialist_tech"),
+    ("the verge", 0.85, "tier_2_specialist_tech"),
+    # Tier 3 (0.75): General tech/business press
+    ("venturebeat", 0.75, "tier_3_general_press"),
+    ("business insider", 0.75, "tier_3_general_press"),
+    ("insider.com", 0.75, "tier_3_general_press"),
+    ("yahoo finance", 0.75, "tier_3_general_press"),
+    ("marketwatch", 0.75, "tier_3_general_press"),
+    ("seeking alpha", 0.75, "tier_3_general_press"),
+    ("wired", 0.75, "tier_3_general_press"),
+    ("fast company", 0.75, "tier_3_general_press"),
+    # Tier 5 (0.50): Known low-quality / SEO / aggregator
+    ("medium.com", 0.50, "tier_5_low_quality"),
+    ("substack.com", 0.50, "tier_5_low_quality"),
+    ("quora.com", 0.50, "tier_5_low_quality"),
+    ("reddit.com", 0.50, "tier_5_low_quality"),
+    ("wikipedia.org", 0.50, "tier_5_low_quality"),
+]
+
+_DEFAULT_SOURCE_RELIABILITY: tuple[float, str] = (0.65, "tier_4_unrecognized")
+_LLM_EXTRACTION_RELIABILITY: tuple[float, str] = (0.80, "tier_llm_synthetic")
+
+
+def _source_reliability_multiplier(source_title: str | None) -> tuple[float, str]:
+    """Return (multiplier, tier_label) based on source publisher identity.
+
+    Checks SOURCE_RELIABILITY_TIERS via case-insensitive substring match on
+    source_title. Returns Tier 4 default (0.65) for unrecognized sources and
+    None/empty titles.
+
+    Special case: "LLM extraction" returns 0.80 (synthetic signal, no domain trust).
+    """
+    if not source_title:
+        return _DEFAULT_SOURCE_RELIABILITY
+    lower = source_title.lower()
+    if "llm extraction" in lower or "llm-extracted" in lower:
+        return _LLM_EXTRACTION_RELIABILITY
+    for keyword, multiplier, label in SOURCE_RELIABILITY_TIERS:
+        if keyword in lower:
+            return (multiplier, label)
+    return _DEFAULT_SOURCE_RELIABILITY
+
+
 def _classify_evidence_type(
     pattern_label: str,
     amount: float,
     snippet: str,
     date_str: str | None,
     as_of: date | None = None,
-) -> tuple[str, float]:
-    """Return (evidence_type, confidence) for a match.
+    source_title: str | None = None,
+) -> tuple[str, float, str]:
+    """Return (evidence_type, confidence, source_reliability_tier) for a match.
 
-    Confidence = base_type_confidence × recency_multiplier(date_str).
+    Confidence = base_type_confidence × recency_multiplier × source_reliability_multiplier.
     """
     snippet_lower = snippet.lower()
 
@@ -311,5 +383,6 @@ def _classify_evidence_type(
         base_conf = EVIDENCE_TYPES["analyst_consensus"] * 0.85
 
     # Apply recency decay — penalises old signals regardless of type
-    multiplier = _recency_multiplier(date_str, as_of, evidence_type=ev_type)
-    return ev_type, round(base_conf * multiplier, 4)
+    rec_mult = _recency_multiplier(date_str, as_of, evidence_type=ev_type)
+    src_mult, src_tier = _source_reliability_multiplier(source_title)
+    return ev_type, round(base_conf * rec_mult * src_mult, 4), src_tier

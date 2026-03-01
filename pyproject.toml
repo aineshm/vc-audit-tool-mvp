@@ -146,6 +146,10 @@ module = ["duckduckgo_search", "duckduckgo_search.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = ["ddgs", "ddgs.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = ["yaml", "yaml.*"]
 ignore_missing_imports = true
 

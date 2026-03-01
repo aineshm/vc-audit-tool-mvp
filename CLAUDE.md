@@ -17,7 +17,7 @@ pip install -e ".[dev]"
 pip install -e ".[llm]"        # With LLM provider packages
 
 # Run tests
-python3 -m pytest tests/ -q                    # Unit tests only (~471 tests)
+python3 -m pytest tests/ -q                    # Unit tests only
 python3 -m pytest tests/ -q -m 'integration or not integration'  # Include integration tests
 python3 -m pytest tests/test_epic2.py -v      # Specific test file
 python3 -m pytest tests/ --cov=vc_audit_tool --cov-report=term-missing  # With coverage
@@ -77,7 +77,7 @@ The codebase follows a **protocol-based architecture** for data sources, allowin
 | `src/vc_audit_tool/logging_config.py` | JSON logging + `contextvars` correlation IDs |
 | `src/vc_audit_tool/data_sources/pinecone_ranker.py` | Pinecone-backed comps ranker |
 | `src/vc_audit_tool/data_sources/ranker_factory.py` | `get_ranker()` — Pinecone if key set, else local |
-| `tests/` | Test suite (~471 tests) |
+| `tests/` | Test suite (~508 tests) |
 | `examples/` | Sample JSON request files |
 
 ### Core Patterns

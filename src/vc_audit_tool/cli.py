@@ -260,7 +260,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     research_p.add_argument(
         "--as-of-date",
-        help=" valuation date (YYYY-MM-DD, defaults to today).",
+        help="Valuation date (YYYY-MM-DD, defaults to today).",
     )
     research_p.add_argument(
         "--methodology",

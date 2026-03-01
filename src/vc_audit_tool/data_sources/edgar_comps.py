@@ -165,8 +165,11 @@ class EdgarYFinanceComparableCompanySource:
             for m in ordered_metrics
         ]
 
-        # Stamp composite dataset version
-        self.dataset_version = f"edgar+yfinance+embeddings-{self._edgar.dataset_version}"
+        # Stamp composite dataset version — reflect actual ranker backend for audit accuracy.
+        from vc_audit_tool.data_sources.pinecone_ranker import PineconeCompsRanker
+
+        ranker_label = "pinecone" if isinstance(self._ranker, PineconeCompsRanker) else "embeddings"
+        self.dataset_version = f"edgar+yfinance+{ranker_label}-{self._edgar.dataset_version}"
 
         logger.info("returning %d comps for sector '%s'", len(comps), sector)
         return comps

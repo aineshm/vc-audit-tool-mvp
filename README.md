@@ -168,7 +168,7 @@ python3 -m pytest tests/ -q          # ~471 unit tests
 ```
 
 Current status:
-```
+```text
 ruff check:   ✅ All checks passed
 ruff format:  ✅ All files already formatted
 mypy:         ✅ Success: no issues found
