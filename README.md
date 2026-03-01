@@ -18,11 +18,11 @@ The tool can operate in two modes:
 ```bash
 git clone https://github.com/aineshm/vc-audit-tool-mvp.git
 cd vc-audit-tool-mvp
-python -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-> **Python ≥ 3.10** required. The `sentence-transformers` dependency will download the `all-MiniLM-L6-v2` model (~80 MB) on first use.
+> **Python ≥ 3.10** required. All commands below must be run from the **`vc-audit-tool/` project root** (the directory containing `pyproject.toml`). The `sentence-transformers` dependency will download the `all-MiniLM-L6-v2` model (~80 MB) on first use.
 
 ---
 
@@ -30,31 +30,34 @@ pip install -e ".[dev]"
 
 ### CLI (primary interface)
 
+> Run all commands from the **project root** (`vc-audit-tool/`).
+
 ```bash
 # Run a valuation from a JSON file
-python -m vc_audit_tool.cli value --request-file examples/comps_request.json --pretty
-python -m vc_audit_tool.cli value --request-file examples/last_round_request.json --pretty
-python -m vc_audit_tool.cli value --request-file examples/techco_ratchet_request.json --pretty
+python3 -m vc_audit_tool.cli value --request-file examples/comps_request.json --pretty
+python3 -m vc_audit_tool.cli value --request-file examples/last_round_request.json --pretty
+python3 -m vc_audit_tool.cli value --request-file examples/techco_ratchet_request.json --pretty
 
 # Cache management (Epic 5)
-python -m vc_audit_tool.cli cache list                     # show all cached datasets
-python -m vc_audit_tool.cli cache clear --older-than 30d   # remove stale cache files
-python -m vc_audit_tool.cli cache clear --all              # wipe everything
+python3 -m vc_audit_tool.cli cache list                     # show all cached datasets
+python3 -m vc_audit_tool.cli cache clear --older-than 30d   # remove stale cache files
+python3 -m vc_audit_tool.cli cache clear --all              # wipe everything
 
 # Confidence report for a stored run (Epic 5)
-python -m vc_audit_tool.cli confidence <request-id>
+python3 -m vc_audit_tool.cli confidence <request-id>
 
-# Research-first valuation from company name
-python -m vc_audit_tool.cli research "Anthropic" --pretty
-python -m vc_audit_tool.cli research "SpaceX" --output spacex_research.json
+# Research-first valuation from company name (requires VC_AUDIT_SEC_USER_AGENT + an LLM key)
+python3 -m vc_audit_tool.cli research "Stripe" --pretty
+python3 -m vc_audit_tool.cli research "Anthropic" --pretty
+python3 -m vc_audit_tool.cli research "Databricks" --methodology comparable_companies --pretty
 ```
 
 ### FastAPI Server
 
 ```bash
-python -m vc_audit_tool.server          # starts on http://127.0.0.1:8080
-python -m vc_audit_tool.server --mode mock   # force mock sources
-python -m vc_audit_tool.server --mode live   # explicit live mode (default)
+python3 -m vc_audit_tool.server          # starts on http://127.0.0.1:8080
+python3 -m vc_audit_tool.server --mode mock   # force mock sources
+python3 -m vc_audit_tool.server --mode live   # explicit live mode (default)
 
 # In another terminal:
 curl http://127.0.0.1:8080/health       # → {"status":"ok"}
@@ -137,18 +140,20 @@ The `target_description` is the key input for finding relevant comps. You can:
 
 ## Running Tests
 
+> Run from the **project root** (`vc-audit-tool/`).
+
 ```bash
-# Unit tests only (default, no network needed) — ~392 tests
-python -m pytest tests/ -q
+# Unit tests only (default, no network needed)
+python3 -m pytest tests/ -q
 
 # Include integration tests (hits SEC EDGAR + Yahoo Finance APIs)
-python -m pytest tests/ -q -m 'integration or not integration'
+python3 -m pytest tests/ -q -m 'integration or not integration'
 
 # Run a specific test file
-python -m pytest tests/test_epic2.py -v
+python3 -m pytest tests/test_epic2.py -v
 
 # Run with coverage
-python -m pytest tests/ --cov=vc_audit_tool --cov-report=term-missing
+python3 -m pytest tests/ --cov=vc_audit_tool --cov-report=term-missing
 ```
 
 ### Quality Gates
@@ -158,16 +163,16 @@ All four must pass before committing:
 ```bash
 ruff check src/ tests/               # linter (pyflakes, isort, bugbear, etc.)
 ruff format --check src/ tests/      # formatter
-mypy src/                            # strict type checking (35 source files)
-python -m pytest tests/ -q           # 392 unit tests
+mypy src/                            # strict type checking
+python3 -m pytest tests/ -q          # ~471 unit tests
 ```
 
 Current status:
 ```
 ruff check:   ✅ All checks passed
 ruff format:  ✅ All files already formatted
-mypy:         ✅ Success: no issues found in 35 source files
-pytest:       ✅ 392 passed, 11 deselected (integration)
+mypy:         ✅ Success: no issues found
+pytest:       ✅ 471 passed, 11 deselected (integration)
 ```
 
 ---

@@ -28,6 +28,7 @@ from vc_audit_tool.data_sources.evidence_patterns import (  # noqa: F401
     EVIDENCE_TYPES,
     _classify_evidence_type,
     _find_nearby_date,
+    _is_delta_context,
     _parse_amount,
     _rough_age_months,
 )
@@ -186,15 +187,31 @@ def extract_evidence(
     source_titles: list[str],
     company_name: str,
     as_of: date | None = None,
+    source_dates: list[str | None] | None = None,
 ) -> EvidencePackage:
     """Parse all snippets and return a ranked ``EvidencePackage``.
 
     This is the main entry point called from ``_web_research_node``.
+
+    Args:
+        snippets: Raw text snippets from web search results.
+        source_titles: Titles parallel to snippets.
+        company_name: Company being researched.
+        as_of: Date anchor for recency calculations and relative date parsing.
+        source_dates: Optional list of structured ISO dates from the search
+            backend (e.g. DDGS result ``date`` field), parallel to snippets.
+            When provided and non-None for a snippet, takes priority over
+            text-based date extraction.
     """
     pkg = EvidencePackage(company_name=company_name)
 
     for i, snippet in enumerate(snippets):
         title = source_titles[i] if i < len(source_titles) else None
+
+        # Prefer structured date from search backend over text extraction.
+        structured_date: str | None = None
+        if source_dates and i < len(source_dates):
+            structured_date = source_dates[i]
 
         for pattern, label in _DIRECT_VALUATION_PATTERNS:
             for m in pattern.finditer(snippet):
@@ -209,7 +226,11 @@ def extract_evidence(
                     if amount < 10_000_000 or amount > 10_000_000_000_000:
                         continue
 
-                    date_str = _find_nearby_date(snippet, m.start())
+                    # Skip delta/increment amounts (e.g. "boost by $15B from $70B").
+                    if _is_delta_context(snippet, m.start()):
+                        continue
+
+                    date_str = structured_date or _find_nearby_date(snippet, m.start(), as_of=as_of)
                     ev_type, confidence = _classify_evidence_type(
                         label, amount, snippet, date_str, as_of
                     )
@@ -231,6 +252,7 @@ def extract_evidence(
         _extract_round_date_signals(snippet, pkg)
 
     pkg.evidence = _deduplicate(pkg.evidence)
+    pkg.evidence = _filter_outliers(pkg.evidence)
     pkg.evidence.sort(key=lambda e: e.confidence, reverse=True)
 
     logger.info(
@@ -291,3 +313,35 @@ def _deduplicate(evidence: list[ValuationEvidence]) -> list[ValuationEvidence]:
         if not is_dup:
             kept.append(ev)
     return kept
+
+
+def _filter_outliers(
+    evidence: list[ValuationEvidence],
+    outlier_floor_pct: float = 0.10,
+) -> list[ValuationEvidence]:
+    """Remove signals that are extreme outliers vs the high-confidence median.
+
+    Keeps any signal with amount >= outlier_floor_pct * median(high_conf_amounts).
+    Default 10%: for a $130B median, floor is $13B — so $150M and $6.5B are
+    filtered while $36B (old but real) survives (then downweighted by recency).
+
+    Returns the original list unchanged when < 3 evidence signals (too few to
+    establish a meaningful median).
+    """
+    if len(evidence) < 3:
+        return evidence
+    high_conf = [e for e in evidence if e.confidence >= 0.60]
+    if len(high_conf) < 2:
+        return evidence
+    amounts = sorted(e.amount_usd for e in high_conf)
+    median_val = amounts[len(amounts) // 2]
+    floor = median_val * outlier_floor_pct
+    filtered = [e for e in evidence if e.amount_usd >= floor]
+    removed = len(evidence) - len(filtered)
+    if removed:
+        logger.info(
+            "evidence_collector: filtered %d outlier signal(s) below $%.1fB floor",
+            removed,
+            floor / 1e9,
+        )
+    return filtered

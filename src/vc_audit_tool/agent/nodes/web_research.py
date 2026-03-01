@@ -69,7 +69,7 @@ def _web_research_node(state: ResearchState) -> ResearchState:
     except ValueError:
         as_of = date.today()
 
-    raw_snippets, source_titles = _ddg_search(name)
+    raw_snippets, source_titles, source_dates = _ddg_search(name)
 
     llm_facts: dict[str, Any] = {}
     if raw_snippets:
@@ -77,7 +77,9 @@ def _web_research_node(state: ResearchState) -> ResearchState:
         if llm is not None and HumanMessage is not None and SystemMessage is not None:
             llm_facts = _llm_extract_structured(llm, model_label, name, raw_snippets)
 
-    pkg: EvidencePackage = extract_evidence(raw_snippets, source_titles, name, as_of)
+    pkg: EvidencePackage = extract_evidence(
+        raw_snippets, source_titles, name, as_of, source_dates=source_dates
+    )
 
     if llm_facts:
         _merge_llm_into_package(llm_facts, pkg, as_of)
@@ -124,17 +126,18 @@ def _web_research_node(state: ResearchState) -> ResearchState:
 def _ddg_search(
     company_name: str,
     max_results_per_query: int = 6,
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str], list[str | None]]:
     if os.getenv("VC_AUDIT_DISABLE_WEB_SEARCH", "").lower() in {"1", "true", "yes"}:
         logger.info("web_research: web search disabled by VC_AUDIT_DISABLE_WEB_SEARCH")
-        return [], []
+        return [], [], []
 
     if DDGS is None:
         logger.info("web_research: duckduckgo not installed — skipping")
-        return [], []
+        return [], [], []
 
     raw_snippets: list[str] = []
     source_titles: list[str] = []
+    source_dates: list[str | None] = []
     try:
         with DDGS() as ddgs:
             for q_template in _SEARCH_QUERIES:
@@ -151,10 +154,12 @@ def _ddg_search(
                     raw_snippets.append(snippet)
                     if title and title not in source_titles:
                         source_titles.append(title)
+                    result_date = str(r.get("date") or "").strip() or None
+                    source_dates.append(result_date)
     except Exception as exc:
         logger.warning("web_research: DuckDuckGo search failed: %s", exc)
 
-    return raw_snippets, source_titles
+    return raw_snippets, source_titles, source_dates
 
 
 def _merge_llm_into_package(

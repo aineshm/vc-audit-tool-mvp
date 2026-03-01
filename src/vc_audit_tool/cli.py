@@ -268,11 +268,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Valuation methodology to use (defaults to best available based on research).",
     )
     research_p.add_argument(
-        "--output",
-        dest="output_format",
-        choices=["json", "pretty"],
-        default="pretty",
-        help="Output format (defaults to pretty).",
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON output.",
     )
 
     return parser
@@ -295,6 +293,9 @@ def main() -> int:
 
     if args.command == "confidence":
         return _cmd_confidence(args)
+
+    if args.command == "research":
+        return _cmd_research(args)
 
     # No subcommand → show help
     parser.print_help()
