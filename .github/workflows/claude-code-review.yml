@@ -36,9 +36,11 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-          plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
+          direct_prompt: |
+            Review the changes in this pull request. Focus on:
+            - Correctness bugs and logic errors
+            - Security vulnerabilities (injection, secrets, input validation)
+            - Type safety issues that mypy would flag
+            - Violations of immutability and error-handling patterns from CLAUDE.md
+            Post a concise review comment summarising findings by severity (Critical / Major / Minor).
 

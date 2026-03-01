@@ -564,7 +564,7 @@ class ParseCompanyNodeTests(unittest.TestCase):
 class FormDNodeTests(unittest.TestCase):
     """Unit tests for _form_d_node."""
 
-    @patch("vc_audit_tool.agent.research.FormDSource")
+    @patch("vc_audit_tool.agent.nodes.form_d.FormDSource")
     def test_returns_rounds_as_dicts(self, mock_cls: MagicMock) -> None:
         from vc_audit_tool.agent.research import _form_d_node
         from vc_audit_tool.data_sources.form_d import FundingRound
@@ -589,7 +589,7 @@ class FormDNodeTests(unittest.TestCase):
         self.assertEqual(len(result["form_d_rounds"]), 1)
         self.assertEqual(result["form_d_rounds"][0]["issuer_name"], "TestCo")
 
-    @patch("vc_audit_tool.agent.research.FormDSource")
+    @patch("vc_audit_tool.agent.nodes.form_d.FormDSource")
     def test_handles_data_source_error(self, mock_cls: MagicMock) -> None:
         from vc_audit_tool.agent.research import _form_d_node
         from vc_audit_tool.exceptions import DataSourceError
@@ -613,7 +613,7 @@ class FormDNodeTests(unittest.TestCase):
 class ContractsNodeTests(unittest.TestCase):
     """Unit tests for _contracts_node."""
 
-    @patch("vc_audit_tool.agent.research.USASpendingSource")
+    @patch("vc_audit_tool.agent.nodes.contracts.USASpendingSource")
     def test_returns_contracts(self, mock_cls: MagicMock) -> None:
         from vc_audit_tool.agent.research import _contracts_node
         from vc_audit_tool.data_sources.usaspending import GovernmentContract
@@ -638,7 +638,7 @@ class ContractsNodeTests(unittest.TestCase):
         self.assertEqual(len(result["government_contracts"]), 1)
         self.assertEqual(result["government_contracts_usd"], 100_000)
 
-    @patch("vc_audit_tool.agent.research.USASpendingSource")
+    @patch("vc_audit_tool.agent.nodes.contracts.USASpendingSource")
     def test_handles_data_source_error(self, mock_cls: MagicMock) -> None:
         from vc_audit_tool.agent.research import _contracts_node
         from vc_audit_tool.exceptions import DataSourceError
@@ -663,7 +663,7 @@ class WebResearchNodeTests(unittest.TestCase):
         result = _web_research_node(state)  # type: ignore[arg-type]
         self.assertNotIn("web_facts", result)
 
-    @patch("vc_audit_tool.agent.research.DDGS", side_effect=ImportError)
+    @patch("vc_audit_tool.agent.nodes.web_research.DDGS", side_effect=ImportError)
     def test_no_ddgs_returns_empty_facts(self, _mock: MagicMock) -> None:
         """When duckduckgo-search is not installed, return empty facts."""
         from vc_audit_tool.agent.research import _web_research_node
@@ -674,7 +674,7 @@ class WebResearchNodeTests(unittest.TestCase):
         self.assertIsNone(result["web_facts"]["revenue_ltm"])
         self.assertIsNone(result["web_facts"]["llm_model_version"])
 
-    @patch("vc_audit_tool.agent.research.DDGS")
+    @patch("vc_audit_tool.agent.nodes.web_research.DDGS")
     def test_regex_extracts_valuation(self, mock_ddgs_cls: MagicMock) -> None:
         """Regex should extract '$4.1 billion valuation'."""
         from vc_audit_tool.agent.research import _web_research_node
@@ -696,7 +696,7 @@ class WebResearchNodeTests(unittest.TestCase):
         self.assertEqual(result["web_facts"]["last_round_amount_raised"], 2_000_000_000)
         self.assertIn("TechCrunch", result["web_facts"]["sources"])
 
-    @patch("vc_audit_tool.agent.research.DDGS")
+    @patch("vc_audit_tool.agent.nodes.web_research.DDGS")
     def test_regex_extracts_revenue(self, mock_ddgs_cls: MagicMock) -> None:
         """Regex should extract '$100 million in revenue'."""
         from vc_audit_tool.agent.research import _web_research_node
@@ -716,7 +716,7 @@ class WebResearchNodeTests(unittest.TestCase):
 
         self.assertEqual(result["web_facts"]["revenue_ltm"], 100_000_000)
 
-    @patch("vc_audit_tool.agent.research.DDGS")
+    @patch("vc_audit_tool.agent.nodes.web_research.DDGS")
     def test_regex_extracts_round_date(self, mock_ddgs_cls: MagicMock) -> None:
         """Regex should extract a date near 'Series' or 'funding round'."""
         from vc_audit_tool.agent.research import _web_research_node
@@ -736,7 +736,7 @@ class WebResearchNodeTests(unittest.TestCase):
 
         self.assertEqual(result["web_facts"]["last_round_date"], "March 2024")
 
-    @patch("vc_audit_tool.agent.research.DDGS")
+    @patch("vc_audit_tool.agent.nodes.web_research.DDGS")
     def test_ddgs_exception_non_blocking(self, mock_ddgs_cls: MagicMock) -> None:
         """If DuckDuckGo raises an exception, we still get empty facts."""
         from vc_audit_tool.agent.research import _web_research_node
@@ -749,8 +749,8 @@ class WebResearchNodeTests(unittest.TestCase):
         self.assertIn("web_facts", result)
         self.assertIsNone(result["web_facts"]["revenue_ltm"])
 
-    @patch("vc_audit_tool.agent.research.ChatOllama")
-    @patch("vc_audit_tool.agent.research.DDGS")
+    @patch("vc_audit_tool.agent.llm_adapter.ChatOllama")
+    @patch("vc_audit_tool.agent.nodes.web_research.DDGS")
     def test_ollama_overrides_regex(
         self, mock_ddgs_cls: MagicMock, mock_ollama_cls: MagicMock
     ) -> None:
@@ -797,7 +797,7 @@ class WebResearchNodeTests(unittest.TestCase):
         self.assertEqual(result["web_facts"]["last_post_money_valuation"], 2_000_000_000)
         self.assertIn("ollama/", result["web_facts"]["llm_model_version"])
 
-    @patch("vc_audit_tool.agent.research.DDGS")
+    @patch("vc_audit_tool.agent.nodes.web_research.DDGS")
     def test_ollama_unavailable_uses_regex_only(self, mock_ddgs_cls: MagicMock) -> None:
         """If Ollama is not running, regex results are used."""
         from vc_audit_tool.agent.research import _web_research_node
@@ -823,7 +823,7 @@ class WebResearchNodeTests(unittest.TestCase):
         with (
             patch.dict(os.environ, env, clear=True),
             patch(
-                "vc_audit_tool.agent.research.ChatOllama",
+                "vc_audit_tool.agent.llm_adapter.ChatOllama",
                 side_effect=Exception("Connection refused"),
             ),
         ):
@@ -834,9 +834,9 @@ class WebResearchNodeTests(unittest.TestCase):
         # No LLM was used
         self.assertIsNone(result["web_facts"]["llm_model_version"])
 
-    @patch("vc_audit_tool.agent.research.ChatAnthropic")
-    @patch("vc_audit_tool.agent.research.ChatOpenAI")
-    @patch("vc_audit_tool.agent.research.ChatGoogleGenerativeAI")
+    @patch("vc_audit_tool.agent.llm_adapter.ChatAnthropic")
+    @patch("vc_audit_tool.agent.llm_adapter.ChatOpenAI")
+    @patch("vc_audit_tool.agent.llm_adapter.ChatGoogleGenerativeAI")
     def test_get_llm_prioritizes_google_when_multiple_keys_set(
         self,
         mock_google_cls: MagicMock,
@@ -862,8 +862,8 @@ class WebResearchNodeTests(unittest.TestCase):
         mock_openai_cls.assert_not_called()
         mock_anthropic_cls.assert_not_called()
 
-    @patch("vc_audit_tool.agent.research.ChatOpenAI")
-    @patch("vc_audit_tool.agent.research.ChatGoogleGenerativeAI")
+    @patch("vc_audit_tool.agent.llm_adapter.ChatOpenAI")
+    @patch("vc_audit_tool.agent.llm_adapter.ChatGoogleGenerativeAI")
     def test_get_llm_falls_back_to_openai_when_google_init_fails(
         self, mock_google_cls: MagicMock, mock_openai_cls: MagicMock
     ) -> None:
@@ -1261,9 +1261,9 @@ class ResearchResultTests(unittest.TestCase):
 class CompanyResearchAgentTests(unittest.TestCase):
     """End-to-end test of the full LangGraph agent with all externals mocked."""
 
-    @patch("vc_audit_tool.agent.research.DDGS", new=None)
-    @patch("vc_audit_tool.agent.research.USASpendingSource")
-    @patch("vc_audit_tool.agent.research.FormDSource")
+    @patch("vc_audit_tool.agent.nodes.web_research.DDGS", new=None)
+    @patch("vc_audit_tool.agent.nodes.contracts.USASpendingSource")
+    @patch("vc_audit_tool.agent.nodes.form_d.FormDSource")
     def test_full_run_comps_path(self, mock_formd_cls: MagicMock, mock_usa_cls: MagicMock) -> None:
         """Agent with no LLM keys, no rounds, no contracts."""
         mock_formd_cls.return_value.search.return_value = []
@@ -1280,6 +1280,7 @@ class CompanyResearchAgentTests(unittest.TestCase):
                 "OLLAMA_MODEL",
             )
         }
+        env["VC_AUDIT_DISABLE_WEB_SEARCH"] = "1"
         with patch.dict(os.environ, env, clear=True):
             from vc_audit_tool.agent.research import CompanyResearchAgent
 
@@ -1290,8 +1291,8 @@ class CompanyResearchAgentTests(unittest.TestCase):
         self.assertIn("revenue_ltm", result.missing_fields)
         self.assertIsNotNone(result.research_metadata)
 
-    @patch("vc_audit_tool.agent.research.USASpendingSource")
-    @patch("vc_audit_tool.agent.research.FormDSource")
+    @patch("vc_audit_tool.agent.nodes.contracts.USASpendingSource")
+    @patch("vc_audit_tool.agent.nodes.form_d.FormDSource")
     def test_full_run_with_web_facts_override(
         self, mock_formd_cls: MagicMock, mock_usa_cls: MagicMock
     ) -> None:
@@ -1352,8 +1353,9 @@ class CompanyResearchAgentTests(unittest.TestCase):
             "last_round_market_adjusted",
         )
 
-    @patch("vc_audit_tool.agent.research.USASpendingSource")
-    @patch("vc_audit_tool.agent.research.FormDSource")
+    @patch("vc_audit_tool.agent.nodes.web_research.DDGS", new=None)
+    @patch("vc_audit_tool.agent.nodes.contracts.USASpendingSource")
+    @patch("vc_audit_tool.agent.nodes.form_d.FormDSource")
     def test_agent_handles_exception_gracefully(
         self, mock_formd_cls: MagicMock, mock_usa_cls: MagicMock
     ) -> None:
@@ -1372,6 +1374,7 @@ class CompanyResearchAgentTests(unittest.TestCase):
                 "OLLAMA_MODEL",
             )
         }
+        env["VC_AUDIT_DISABLE_WEB_SEARCH"] = "1"
         with patch.dict(os.environ, env, clear=True):
             from vc_audit_tool.agent.research import CompanyResearchAgent
 
@@ -1394,9 +1397,14 @@ class ResearchEndpointTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         from starlette.testclient import TestClient
 
-        from vc_audit_tool.server import app
+        from vc_audit_tool import server as server_module
+        from vc_audit_tool.engine import ValuationEngine
 
-        cls.client = TestClient(app)
+        mock_engine = ValuationEngine.mock()
+        server_module.engine = mock_engine
+        server_module.app.state.engine = mock_engine
+
+        cls.client = TestClient(server_module.app)
 
     def test_missing_company_name_returns_400(self) -> None:
         resp = self.client.post("/research", content=json.dumps({}))
@@ -1411,9 +1419,9 @@ class ResearchEndpointTests(unittest.TestCase):
         resp = self.client.post("/research", content=json.dumps({"company_name": 123}))
         self.assertEqual(resp.status_code, 400)
 
-    @patch("vc_audit_tool.agent.research.DDGS", new=None)
-    @patch("vc_audit_tool.agent.research.USASpendingSource")
-    @patch("vc_audit_tool.agent.research.FormDSource")
+    @patch("vc_audit_tool.agent.nodes.web_research.DDGS", new=None)
+    @patch("vc_audit_tool.agent.nodes.contracts.USASpendingSource")
+    @patch("vc_audit_tool.agent.nodes.form_d.FormDSource")
     def test_incomplete_research_returns_200_with_partial_payload(
         self, mock_formd_cls: MagicMock, mock_usa_cls: MagicMock
     ) -> None:
@@ -1447,8 +1455,8 @@ class ResearchEndpointTests(unittest.TestCase):
         self.assertIn("missing_fields", data)
         self.assertIn("research_metadata", data)
 
-    @patch("vc_audit_tool.agent.research.USASpendingSource")
-    @patch("vc_audit_tool.agent.research.FormDSource")
+    @patch("vc_audit_tool.agent.nodes.contracts.USASpendingSource")
+    @patch("vc_audit_tool.agent.nodes.form_d.FormDSource")
     def test_complete_research_returns_200(
         self, mock_formd_cls: MagicMock, mock_usa_cls: MagicMock
     ) -> None:
@@ -1504,9 +1512,9 @@ class ResearchEndpointTests(unittest.TestCase):
         self.assertIn("research_metadata", data)
         self.assertIn("estimated_fair_value", data["valuation_result"])
 
-    @patch("vc_audit_tool.agent.research.DDGS", new=None)
-    @patch("vc_audit_tool.agent.research.USASpendingSource")
-    @patch("vc_audit_tool.agent.research.FormDSource")
+    @patch("vc_audit_tool.agent.nodes.web_research.DDGS", new=None)
+    @patch("vc_audit_tool.agent.nodes.contracts.USASpendingSource")
+    @patch("vc_audit_tool.agent.nodes.form_d.FormDSource")
     def test_research_with_description_hint(
         self, mock_formd_cls: MagicMock, mock_usa_cls: MagicMock
     ) -> None:

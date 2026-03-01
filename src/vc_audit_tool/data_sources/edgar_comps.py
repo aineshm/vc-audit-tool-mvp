@@ -26,6 +26,7 @@ from vc_audit_tool.data_sources.edgar_universe import (
 )
 from vc_audit_tool.data_sources.embedding_ranker import EmbeddingCompsRanker
 from vc_audit_tool.data_sources.mock import ComparableCompany
+from vc_audit_tool.data_sources.ranker_factory import get_ranker
 from vc_audit_tool.data_sources.yfinance_metrics import YFinanceMetricsFetcher
 from vc_audit_tool.exceptions import DataSourceError
 
@@ -70,7 +71,7 @@ class EdgarYFinanceComparableCompanySource:
         self._metrics = metrics or YFinanceMetricsFetcher(
             cache_dir=cache_root / "yfinance_metrics_cache"
         )
-        self._ranker = ranker or EmbeddingCompsRanker(cache_dir=cache_root / "embedding_cache")
+        self._ranker = ranker or get_ranker(cache_dir=cache_root / "embedding_cache")
         self._top_k = top_k
         self._target_description = target_description
         self.warnings: list[str] = []
@@ -164,8 +165,11 @@ class EdgarYFinanceComparableCompanySource:
             for m in ordered_metrics
         ]
 
-        # Stamp composite dataset version
-        self.dataset_version = f"edgar+yfinance+embeddings-{self._edgar.dataset_version}"
+        # Stamp composite dataset version — reflect actual ranker backend for audit accuracy.
+        from vc_audit_tool.data_sources.pinecone_ranker import PineconeCompsRanker
+
+        ranker_label = "pinecone" if isinstance(self._ranker, PineconeCompsRanker) else "embeddings"
+        self.dataset_version = f"edgar+yfinance+{ranker_label}-{self._edgar.dataset_version}"
 
         logger.info("returning %d comps for sector '%s'", len(comps), sector)
         return comps

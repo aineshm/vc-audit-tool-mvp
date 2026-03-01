@@ -141,6 +141,62 @@ def _cmd_confidence(args: argparse.Namespace) -> int:
         return 1
 
 
+def _cmd_research(args: argparse.Namespace) -> int:
+    """Run the research agent and produce a valuation."""
+    from vc_audit_tool.agent.research import CompanyResearchAgent
+
+    try:
+        agent = CompanyResearchAgent()
+        research = agent.run(
+            args.company,
+            methodology=args.methodology or "",
+            as_of_date=args.as_of_date or "",
+        )
+
+        # If research is incomplete, print what we have and exit
+        if not research.is_complete:
+            incomplete_result = {
+                "assembled_request": None,
+                "best_available_methodology": research.best_available_methodology,
+                "missing_for_best_available": (
+                    research.missing_for_best_available or research.missing_fields
+                ),
+                "missing_fields": research.missing_fields,
+                "research_metadata": research.research_metadata,
+                "web_facts": research.web_facts or {},
+            }
+            if args.pretty:
+                print(json.dumps(incomplete_result, indent=2))
+            else:
+                print(json.dumps(incomplete_result))
+            return 0
+
+        # Research complete - run the valuation engine
+        assembled_request = research.assembled_request
+        if assembled_request is None:
+            print(json.dumps({"error": "Research returned no assembled request."}))
+            return 1
+        engine = ValuationEngine()
+        result = engine.evaluate_from_dict(assembled_request)
+        result_dict = result.to_dict()
+        result_dict["research_metadata"] = research.research_metadata
+
+        if args.pretty:
+            print(json.dumps(result_dict, indent=2))
+        else:
+            print(json.dumps(result_dict))
+        return 0
+    except ImportError as exc:
+        print(json.dumps({"error": f"Research agent dependencies not installed: {exc}"}))
+        return 1
+    except (ValidationError, DataSourceError) as exc:
+        print(json.dumps({"error": str(exc)}))
+        return 1
+    except Exception as exc:
+        print(json.dumps({"error": str(exc)}))
+        return 1
+
+
 # ---------------------------------------------------------------------------
 # Parser construction
 # ---------------------------------------------------------------------------
@@ -193,6 +249,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="The request_id (UUID) of a stored valuation run.",
     )
 
+    # ── vc-audit research ──
+    research_p = subparsers.add_parser(
+        "research",
+        help="Run the research agent to gather company data and produce a valuation.",
+    )
+    research_p.add_argument(
+        "company",
+        help="Company name to research.",
+    )
+    research_p.add_argument(
+        "--as-of-date",
+        help="Valuation date (YYYY-MM-DD, defaults to today).",
+    )
+    research_p.add_argument(
+        "--methodology",
+        choices=["scorecard", "berkus", "comparable_companies"],
+        help="Valuation methodology to use (defaults to best available based on research).",
+    )
+    research_p.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON output.",
+    )
+
     return parser
 
 
@@ -213,6 +293,9 @@ def main() -> int:
 
     if args.command == "confidence":
         return _cmd_confidence(args)
+
+    if args.command == "research":
+        return _cmd_research(args)
 
     # No subcommand → show help
     parser.print_help()

@@ -75,6 +75,12 @@ The engine is **data-source agnostic**. It accepts any object satisfying the `Pr
 
 The **reconciliation layer** (Phase 2) sits above the valuation engine: it profiles the company, selects applicable methodologies with stage-based weights from a YAML config, runs each through the engine, and reconciles the results into a single concluded valuation with divergence analysis.
 
+### Redesign Baseline
+
+Incremental redesign work is tracked against `.claude/plan/stack-rethink.md`. The active path is
+stabilization + modularization (agent node split, async service hardening, deterministic tests), not
+a full rewrite of storage/routing/reconciliation in a single cycle.
+
 ### Endpoint Interaction Modes
 
 | Endpoint | Input Style | Methodology Selection | Sector Handling |
@@ -100,6 +106,7 @@ src/vc_audit_tool/
 +-- store.py                       # SQLite-backed ValuationStore (run history)
 +-- cache.py                       # Epic 5.1: Cache list/clear utilities
 +-- confidence.py                  # Epic 5.2: Confidence-indicator report formatter
++-- logging_config.py              # JSON structured logging + contextvars request correlation IDs
 |
 +-- data_sources/
 |   +-- __init__.py                # Re-exports + lazy imports for heavy modules
@@ -107,10 +114,14 @@ src/vc_audit_tool/
 |   +-- yfinance_market_index.py   # Epic 1: Live NASDAQ/Russell via yfinance
 |   +-- edgar_universe.py          # Epic 2.1: EDGAR company universe by SIC
 |   +-- yfinance_metrics.py        # Epic 2.3: EV/Revenue/marketCap via yfinance
-|   +-- embedding_ranker.py        # Epic 2.2: Sentence-transformer ranking
+|   +-- embedding_ranker.py        # Epic 2.2: Local sentence-transformer comps ranking
+|   +-- pinecone_ranker.py         # Pinecone-hosted inference comps ranker (when key set)
+|   +-- ranker_factory.py          # get_ranker() -- Pinecone if key set, else local embeddings
 |   +-- edgar_comps.py             # Epic 2.4: Composite source (wires EDGAR+YFin+Embeddings)
 |   +-- form_d.py                  # Epic 3.1: SEC Form D filings via EDGAR EFTS
 |   +-- usaspending.py             # Epic 3.3: Federal contracts via USASpending.gov
+|   +-- evidence_collector.py      # Evidence aggregation across data sources
+|   +-- evidence_patterns.py       # Evidence pattern extraction + temporal weighting
 |
 +-- methodologies/
 |   +-- __init__.py
@@ -120,6 +131,7 @@ src/vc_audit_tool/
 |   +-- multiple_ratchet.py        # Last-Round Multiple-Ratchet methodology
 |   +-- scorecard.py               # Phase 2: Payne Scorecard (7 qualitative factors)
 |   +-- berkus.py                  # Phase 2: Berkus Method (5 risk dimensions)
+|   +-- direct_valuation.py        # Evidence-signal based valuation with illiquidity discounts
 |
 +-- reconciliation/                # Phase 2: Multi-methodology reconciliation
 |   +-- __init__.py                # Re-exports core types
@@ -133,9 +145,30 @@ src/vc_audit_tool/
 |
 +-- agent/
 |   +-- __init__.py                # Re-exports CompanyResearchAgent, ResearchResult
-|   +-- research.py                # Epic 3: LangGraph research agent (5 nodes)
+|   +-- research.py                # Epic 3: LangGraph research agent graph
+|   +-- state.py                   # ResearchState TypedDict for LangGraph
+|   +-- llm_config.py              # LLM provider config loading (config/llm_providers.yaml)
+|   +-- llm_adapter.py             # LLM provider abstraction (Gemini/OpenAI/Claude/Ollama)
+|   +-- nodes/
+|       +-- __init__.py
+|       +-- parse.py               # Parse company name, infer sector
+|       +-- form_d.py              # Search SEC Form D filings
+|       +-- web_research.py        # DuckDuckGo search + LLM-structured extraction
+|       +-- contracts.py           # USASpending.gov federal contracts
+|       +-- assemble.py            # Auto-build ValuationRequest from evidence
+|
++-- routers/                       # FastAPI route handlers (split from server.py)
+|   +-- __init__.py
+|   +-- valuation.py               # POST /value endpoint
+|   +-- research.py                # POST /research endpoint
+|   +-- reconcile.py               # POST /reconcile endpoint
+|
++-- services/                      # Business logic layer
+    +-- __init__.py
+    +-- valuation_service.py       # Valuation orchestration service
 
 config/
++-- llm_providers.yaml             # LLM provider fallback chain, model names, cost limits
 +-- methodology_rules_v1.yaml      # Phase 2: Versioned stage weights + exclusion rules
 
 tests/
@@ -164,7 +197,7 @@ examples/
 +-- techco_ratchet_request.json    # Sample Multiple-Ratchet request (TechCo scenario)
 ```
 
-**35 source files, ~5,100 lines of production code, 392 total tests.**
+**56 source files, ~9,200 lines of production code, 508 total tests.**
 
 ---
 
@@ -869,6 +902,9 @@ OLLAMA_MODEL set?      -> ChatOllama(local model)
 Regex-only mode        -> still extracts valuations, revenue, dates
 ```
 
+Provider ordering/default models are loaded from `config/llm_providers.yaml` (with hardcoded fallback
+defaults if this file is unavailable or malformed).
+
 Each provider is wrapped in `try/except` -- if init fails, the next provider is tried. The system always works because regex extraction runs unconditionally before LLM extraction.
 
 If no methodology can be fully assembled from research data, `POST /research` returns
@@ -911,6 +947,12 @@ EDGAR endpoints may return HTTP 403 when this is missing or generic.
 
 LLM results **override** regex results (they are more accurate), but regex provides a safety net when no LLM is configured.
 
+For deterministic/offline unit-test execution, set:
+
+```bash
+export VC_AUDIT_DISABLE_WEB_SEARCH=1
+```
+
 
 ---
 
@@ -919,25 +961,29 @@ LLM results **override** regex results (they are more accurate), but regex provi
 ### Test Pyramid
 
 ```
-392 total tests
-+-- 381 unit tests (run offline, <6 seconds)
-|   +-- test_engine.py         -- 138 tests (engine, methodologies, server, CLI, validation)
-|   +-- test_yfinance.py       -- Epic 1 offline tests
-|   +-- test_epic2.py          -- 43 tests (EDGAR, metrics, embeddings, composite)
-|   +-- test_multiple_ratchet.py -- 39 tests (Multiple-Ratchet methodology)
-|   +-- test_epic3.py          -- 77 tests (Form D, USASpending, agent pipeline, /research)
-|   +-- test_epic5.py          -- 38 tests (cache management, confidence reports)
-|   +-- test_scorecard.py      -- 11 tests (Phase 2: Scorecard methodology)
-|   +-- test_berkus.py         --  9 tests (Phase 2: Berkus methodology)
-|   +-- test_reconciliation.py -- 37 tests (Phase 2: profiler, selector, reconciler, engine, /reconcile)
-|   +-- test_cli.py            -- CLI subcommand tests
-|   +-- test_determinism.py    -- Determinism + reproducibility tests
-|   +-- test_methodologies.py  -- Cross-methodology parametrized tests
-|   +-- test_serialization.py  -- JSON envelope round-trip tests
-|   +-- test_server.py         -- FastAPI endpoint tests
-|   +-- test_store.py          -- SQLite store tests
-|   +-- test_validation.py     -- Input validation tests
-|   +-- test_web.py            -- Web UI endpoint tests
+508 total tests
++-- 497 unit tests (run offline, <10 seconds)
+|   +-- test_engine.py              -- engine, methodologies, server, CLI, validation
+|   +-- test_yfinance.py            -- Epic 1 offline tests
+|   +-- test_epic2.py              -- 43 tests (EDGAR, metrics, embeddings, composite)
+|   +-- test_multiple_ratchet.py   -- 39 tests (Multiple-Ratchet methodology)
+|   +-- test_epic3.py              -- 77 tests (Form D, USASpending, agent pipeline, /research)
+|   +-- test_epic5.py              -- 38 tests (cache management, confidence reports)
+|   +-- test_scorecard.py          -- 11 tests (Phase 2: Scorecard methodology)
+|   +-- test_berkus.py             --  9 tests (Phase 2: Berkus methodology)
+|   +-- test_reconciliation.py     -- 37 tests (Phase 2: profiler, selector, reconciler, engine, /reconcile)
+|   +-- test_evidence.py           -- evidence package + EvidencePackage audit trail
+|   +-- test_evidence_improvements.py -- temporal weighting + date extraction accuracy
+|   +-- test_pinecone_ranker.py    -- Pinecone ranker + ranker_factory selection logic
+|   +-- test_valuation_service.py  -- ValuationService orchestration layer
+|   +-- test_cli.py                -- CLI subcommand tests
+|   +-- test_determinism.py        -- Determinism + reproducibility tests
+|   +-- test_methodologies.py      -- Cross-methodology parametrized tests
+|   +-- test_serialization.py      -- JSON envelope round-trip tests
+|   +-- test_server.py             -- FastAPI endpoint tests
+|   +-- test_store.py              -- SQLite store tests
+|   +-- test_validation.py         -- Input validation tests
+|   +-- test_web.py                -- Web UI endpoint tests
 |
 +-- 11 integration tests (marked @pytest.mark.integration, require network)
     +-- test_yfinance.py  -- live Yahoo Finance index tests
