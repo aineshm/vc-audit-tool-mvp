@@ -173,7 +173,9 @@ def _merge_llm_into_package(
     pm = llm_facts.get("last_post_money_valuation")
     if pm and isinstance(pm, (int, float)) and pm > 1_000_000:
         date_str = llm_facts.get("last_round_date")
-        ev_type, conf = _classify_evidence_type("round", pm, "", date_str, as_of)
+        ev_type, conf, src_tier = _classify_evidence_type(
+            "round", pm, "", date_str, as_of, source_title="LLM extraction"
+        )
         if not any(abs(e.amount_usd - pm) / max(pm, 1) < 0.15 for e in pkg.evidence):
             pkg.evidence.append(
                 ValuationEvidence(
@@ -183,6 +185,7 @@ def _merge_llm_into_package(
                     date_mentioned=str(date_str) if date_str else None,
                     source_title="LLM extraction",
                     confidence=conf * 0.9,
+                    source_reliability_tier=src_tier,
                 )
             )
 

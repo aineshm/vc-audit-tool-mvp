@@ -26,11 +26,13 @@ from typing import Any
 from vc_audit_tool.data_sources.evidence_patterns import (  # noqa: F401
     _DIRECT_VALUATION_PATTERNS,
     EVIDENCE_TYPES,
+    SOURCE_RELIABILITY_TIERS,
     _classify_evidence_type,
     _find_nearby_date,
     _is_delta_context,
     _parse_amount,
     _rough_age_months,
+    _source_reliability_multiplier,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,6 +51,7 @@ class ValuationEvidence:
     date_mentioned: str | None = None
     source_title: str | None = None
     confidence: float = 0.5
+    source_reliability_tier: str | None = None
 
     def age_months(self, as_of: date | None = None) -> float | None:
         """Return approximate age in months, or None if no date available."""
@@ -69,6 +72,7 @@ class ValuationEvidence:
             "amount_usd": self.amount_usd,
             "evidence_type": self.evidence_type,
             "confidence": self.confidence,
+            "source_reliability_tier": self.source_reliability_tier,
             "date_mentioned": self.date_mentioned,
             "source_title": self.source_title,
             "source_snippet": self.source_snippet[:200],
@@ -231,8 +235,8 @@ def extract_evidence(
                         continue
 
                     date_str = structured_date or _find_nearby_date(snippet, m.start(), as_of=as_of)
-                    ev_type, confidence = _classify_evidence_type(
-                        label, amount, snippet, date_str, as_of
+                    ev_type, confidence, src_tier = _classify_evidence_type(
+                        label, amount, snippet, date_str, as_of, source_title=title
                     )
 
                     pkg.evidence.append(
@@ -243,6 +247,7 @@ def extract_evidence(
                             date_mentioned=date_str,
                             source_title=title,
                             confidence=confidence,
+                            source_reliability_tier=src_tier,
                         )
                     )
                 except (ValueError, IndexError):
