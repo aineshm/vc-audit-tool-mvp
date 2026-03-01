@@ -8,6 +8,7 @@ from typing import Any
 
 from vc_audit_tool.agent.state import ResearchState
 from vc_audit_tool.data_sources.evidence_collector import EvidencePackage, extract_evidence
+from vc_audit_tool.methodologies._discount_config import get_discount_default
 
 logger = logging.getLogger(__name__)
 
@@ -186,13 +187,12 @@ def _assemble_direct_valuation(
         "inputs": {
             "evidence_signals": evidence_signals,
             "consensus_strength": pkg.consensus_strength,
-            "private_company_discount_pct": (
-                10.0
-                if any(
+            "private_company_discount_pct": get_discount_default(
+                "direct_valuation",
+                has_secondary_evidence=any(
                     e["evidence_type"] in ("secondary_market", "post_money_fresh")
                     for e in evidence_signals
-                )
-                else 20.0
+                ),
             ),
         },
     }, []
@@ -254,7 +254,7 @@ def _assemble_comps(
                 "sector": sector,
                 "revenue_ltm": revenue,
                 "statistic": "median",
-                "private_company_discount_pct": 25,
+                "private_company_discount_pct": get_discount_default("comparable_companies"),
             },
         }
         if description_hint:
@@ -276,7 +276,7 @@ def _assemble_comps(
             "current_revenue": revenue,
             "sector": sector,
             "statistic": "median",
-            "private_company_discount_pct": 25,
+            "private_company_discount_pct": get_discount_default("last_round_multiple_ratchet"),
         },
     }
     if description_hint:

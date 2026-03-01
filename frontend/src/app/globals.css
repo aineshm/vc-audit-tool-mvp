@@ -1,0 +1,42 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+/* Class-based dark mode — Header toggles .dark on <html> */
+@variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-sand-50: #faf8f2;
+  --color-sand-100: #f2efe5;
+  --color-sand-200: #e8e3d2;
+  --color-sand-300: #d8d4c3;
+
+  --color-ink: #142321;
+  --color-ink-light: #4d615e;
+
+  --color-teal-50: #e8f4f3;
+  --color-teal-100: #b3dedd;
+  --color-teal-300: #4db8b6;
+  --color-teal-500: #0d7a78;
+  --color-teal-700: #0a5e5d;
+  --color-teal-900: #073d3c;
+
+  --color-warm-50: #fef4ee;
+  --color-warm-100: #f5e3d9;
+  --color-warm-300: #e8b894;
+  --color-warm-500: #c85e28;
+  --color-warm-700: #8f3f1a;
+
+  --font-sans: 'Space Grotesk', 'Avenir Next', 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+}
+
+:root {
+  --background: #faf8f2;
+  --foreground: #142321;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}

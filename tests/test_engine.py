@@ -29,7 +29,8 @@ class ValuationEngineTests(unittest.TestCase):
         vr = out["valuation_result"]
 
         self.assertEqual(vr["methodology"], "last_round_market_adjusted")
-        self.assertAlmostEqual(vr["estimated_fair_value"]["amount"], 120_831_065.39, places=2)
+        # 10% private-company discount now applied by default; 120_831_065.39 × 0.90
+        self.assertAlmostEqual(vr["estimated_fair_value"]["amount"], 108_747_958.85, places=2)
         self.assertIn("index_level_last_round", vr["inputs_used"])
         self.assertIn("derivation_steps", vr)
         self.assertIn("confidence_indicators", vr)

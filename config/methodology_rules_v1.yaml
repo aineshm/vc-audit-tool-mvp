@@ -67,3 +67,27 @@ base_weights:
   late:
     comparable_companies: 0.70
     last_round_market_adjusted: 0.30
+
+# ── Private company illiquidity discount defaults ────────────────────────────
+#
+# Rationale: Private company equity is illiquid vs. a publicly traded equivalent.
+# The discount reflects the cost of holding a position that cannot be easily sold.
+# Lower discounts apply when direct price discovery exists (secondary market
+# trades, recent rounds). Higher discounts apply when derived from public comps.
+#
+# last_round_market_adjusted uses a modest 10% because the anchor was a real
+# private-market transaction, but the market-index adjustment uses public movement.
+# Scorecard and Berkus are exempt — already calibrated for private companies.
+#
+private_company_discount:
+  defaults:
+    comparable_companies: 25
+    last_round_market_adjusted: 10
+    last_round_multiple_ratchet: 25
+    direct_valuation:
+      has_secondary_evidence: 10
+      no_secondary_evidence: 20
+  max_allowed: 50
+  exempt:
+    - scorecard
+    - berkus

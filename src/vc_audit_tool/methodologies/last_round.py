@@ -8,6 +8,7 @@ from typing import Any
 from vc_audit_tool.models import Citation, MonetaryAmount, ValuationRequest, ValuationResult
 from vc_audit_tool.validation import parse_date, parse_decimal, require_field
 
+from ._discount_config import clamp_discount, get_discount_default
 from .base import MethodologyContext, ValuationMethodology
 
 
@@ -30,6 +31,25 @@ class LastRoundMarketAdjustedMethodology(ValuationMethodology):
         multiplier = Decimal("1") + pct_change
         adjusted_value = (last_post_money * multiplier).quantize(Decimal("0.01"))
 
+        # ── Private company discount ──────────────────────────────────────────
+        # The last-round anchor was a real private transaction, but the
+        # market-index adjustment uses PUBLIC market movement. A modest
+        # discount captures the risk that private valuations don't move
+        # 1:1 with public indices.
+        discount_pct = clamp_discount(
+            float(
+                inputs.get(
+                    "private_company_discount_pct",
+                    get_discount_default("last_round_market_adjusted"),
+                )
+            )
+        )
+        pre_discount = adjusted_value
+        if discount_pct > 0:
+            adjusted_value = (pre_discount * Decimal(str((100 - discount_pct) / 100))).quantize(
+                Decimal("0.01")
+            )
+
         # Read citation metadata from the data source itself (every
         # conforming source exposes ``source_label`` and ``dataset_version``).
         ds_label: str = getattr(src, "source_label", "Market index dataset")
@@ -40,6 +60,8 @@ class LastRoundMarketAdjustedMethodology(ValuationMethodology):
             f"Method assumes valuation moves proportionally with {public_index}.",
             f"Used index level on {last_round_level.as_of_date.isoformat()} "
             f"for last round and {as_of_level.as_of_date.isoformat()} for as-of date.",
+            f"Applied private-company illiquidity discount of {discount_pct:.0f}% "
+            f"(last-round market-adjusted; default from config).",
         ]
         derivation_steps = [
             f"Start with last post-money valuation: {float(last_post_money):,.2f} USD.",
@@ -48,7 +70,10 @@ class LastRoundMarketAdjustedMethodology(ValuationMethodology):
             f"Compute adjustment multiplier: 1 + {float(pct_change):.6f} "
             f"= {float(multiplier):.6f}.",
             f"Apply multiplier to last valuation: {float(last_post_money):,.2f} * "
-            f"{float(multiplier):.6f} = {float(adjusted_value):,.2f} USD.",
+            f"{float(multiplier):.6f} = {float(pre_discount):,.2f} USD.",
+            f"Private company discount ({discount_pct:.0f}%): "
+            f"${float(pre_discount) / 1e9:.2f}B × {(100 - discount_pct) / 100:.2f} "
+            f"= ${float(adjusted_value) / 1e9:.2f}B.",
         ]
         citations = [
             Citation(
@@ -98,6 +123,7 @@ class LastRoundMarketAdjustedMethodology(ValuationMethodology):
                 "public_index": public_index,
                 "index_level_last_round": float(last_round_level.level),
                 "index_level_as_of_date": float(as_of_level.level),
+                "private_company_discount_pct": discount_pct,
             },
             citations=citations,
             derivation_steps=derivation_steps,

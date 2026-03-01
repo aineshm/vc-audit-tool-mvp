@@ -37,6 +37,12 @@ python3 -m vc_audit_tool.cli confidence <request-id>
 # Run FastAPI server
 python3 -m vc_audit_tool.server                      # Default live mode
 python3 -m vc_audit_tool.server --mode mock          # Force mock mode
+
+# Frontend (requires Node 24)
+cd frontend
+source ~/.nvm/nvm.sh && nvm use 24 --silent
+npm run dev                  # dev server on :3000
+npm run build && npm start   # production
 ```
 
 ## Environment Variables
@@ -71,13 +77,16 @@ The codebase follows a **protocol-based architecture** for data sources, allowin
 | `src/vc_audit_tool/` | Core package - CLI, server, engine, models, validation |
 | `src/vc_audit_tool/data_sources/` | Pluggable data source implementations (mock, yfinance, EDGAR, embeddings) |
 | `src/vc_audit_tool/methodologies/` | Valuation methodology implementations (comps, last_round, ratchet, scorecard, berkus) |
+| `src/vc_audit_tool/methodologies/_discount_config.py` | Configurable illiquidity discount defaults — `get_discount_default()`, `clamp_discount()` |
 | `src/vc_audit_tool/reconciliation/` | Phase 2 multi-methodology reconciliation (CompanyProfiler, MethodologySelector, Reconciler) |
 | `src/vc_audit_tool/agent/` | LangGraph-based company research agent |
-| `config/` | YAML configuration for methodology rules |
+| `config/` | YAML configuration for methodology rules and discount defaults |
 | `src/vc_audit_tool/logging_config.py` | JSON logging + `contextvars` correlation IDs |
 | `src/vc_audit_tool/data_sources/pinecone_ranker.py` | Pinecone-backed comps ranker |
 | `src/vc_audit_tool/data_sources/ranker_factory.py` | `get_ranker()` — Pinecone if key set, else local |
-| `tests/` | Test suite (~508 tests) |
+| `src/vc_audit_tool/data_sources/evidence_patterns.py` | `SOURCE_RELIABILITY_TIERS` (35-entry domain map), 3-factor confidence scoring |
+| `frontend/` | Next.js 16 + React 19 + Tailwind v4 frontend |
+| `tests/` | Test suite (~555 tests) |
 | `examples/` | Sample JSON request files |
 
 ### Core Patterns
@@ -86,6 +95,8 @@ The codebase follows a **protocol-based architecture** for data sources, allowin
 2. **Deterministic outputs**: Uses `decimal.Decimal` for monetary calculations, dataset versioning, daily caching
 3. **Audit trail**: Every result includes assumptions, derivation steps, confidence indicators, citations
 4. **Multi-provider LLM fallback**: Gemini > OpenAI > Claude > Ollama > Regex fallback
+5. **Source reliability tiers**: 3-factor confidence = `base_type × recency_multiplier × source_tier_multiplier`; 35-entry domain mapping in `evidence_patterns.py`
+6. **Configurable discounts**: Per-methodology illiquidity discounts loaded from `config/methodology_rules_v1.yaml`; applied via `_discount_config.py`; always disclosed in `derivation_steps`
 
 ### Configuration Patterns
 
@@ -124,10 +135,22 @@ The codebase follows a **protocol-based architecture** for data sources, allowin
 
 ### Key API Endpoints
 
-- `POST /value` - Run a valuation with structured inputs
-- `POST /research` - Automated research + valuation from company name
-- `POST /reconcile` - Multi-methodology reconciled valuation
-- `GET /health` - Health check (returns `version`, `store`, `llm_provider`, `pinecone_index`, `request_id`)
+- `POST /value` — Run a valuation with structured inputs
+- `POST /api/value` — Alias for `/value` (used by frontend)
+- `POST /research` — Automated research + valuation from company name
+- `POST /reconcile` — Multi-methodology reconciled valuation
+- `GET /health` — Health check (returns `version`, `store`, `llm_provider`, `pinecone_index`, `request_id`)
+- `GET /api/runs` — List recent valuation runs (summary)
+- `GET /api/runs/{run_id}` — Full payload for a single run
+
+### Frontend Routes (Next.js)
+
+- `GET /` — Dashboard (recent runs)
+- `GET /research` — Research-first valuation form (POST goes to backend via rewrite)
+- `GET /value` — Manual valuation form (POSTs to `/api/value`)
+- `GET /reconcile` — Reconcile form (POST goes to backend via rewrite)
+- `GET /runs` — Run history table
+- `GET /runs/[id]` — Run detail with audit trail, evidence package, source reliability badges
 
 ## Development Notes
 

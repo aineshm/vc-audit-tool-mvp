@@ -52,6 +52,32 @@ python3 -m vc_audit_tool.cli research "Anthropic" --pretty
 python3 -m vc_audit_tool.cli research "Databricks" --methodology comparable_companies --pretty
 ```
 
+### Frontend (Next.js)
+
+The frontend is built with **Next.js 16** (React 19, TypeScript, Tailwind v4).
+
+```bash
+# Requires Node 24+ (install via nvm: nvm install 24 && nvm alias default 24)
+cd frontend
+npm install
+npm run dev        # development server on http://localhost:3000
+npm run build && npm start   # production
+```
+
+The frontend proxies all API calls to the FastAPI backend at `:8080` via `next.config.ts` rewrites. Start the FastAPI server first.
+
+**Routes:**
+- `/` — Dashboard with recent run history
+- `/research` — Research-first valuation (company name only)
+- `/value` — Manual structured valuation with full JSON inputs
+- `/reconcile` — Multi-methodology reconciled valuation
+- `/runs` — Full run history table
+- `/runs/[id]` — Detailed run results with audit trail, derivation steps, evidence package, and source reliability badges
+
+Copy `frontend/.env.local.example` → `frontend/.env.local` to configure the backend URL.
+
+---
+
 ### FastAPI Server
 
 ```bash
@@ -164,7 +190,7 @@ All four must pass before committing:
 ruff check src/ tests/               # linter (pyflakes, isort, bugbear, etc.)
 ruff format --check src/ tests/      # formatter
 mypy src/                            # strict type checking
-python3 -m pytest tests/ -q          # ~471 unit tests
+python3 -m pytest tests/ -q          # ~555 unit tests
 ```
 
 Current status:
@@ -172,7 +198,7 @@ Current status:
 ruff check:   ✅ All checks passed
 ruff format:  ✅ All files already formatted
 mypy:         ✅ Success: no issues found
-pytest:       ✅ 508 passed, 11 deselected (integration)
+pytest:       ✅ 555 passed, 11 deselected (integration)
 ```
 
 ---
@@ -539,6 +565,10 @@ Weights are dynamically adjusted based on data availability (e.g., round stalene
 | **Epic 4** | `POST /research` endpoint — one-call company valuation from just a name | ✅ Complete |
 | **Epic 5** | Observability — `vc-audit cache list/clear` CLI + `vc-audit confidence <id>` report | ✅ Complete |
 | **Phase 2** | Multi-methodology reconciliation — Scorecard & Berkus methods, CompanyProfiler, MethodologySelector (YAML rules), Reconciler, `POST /reconcile` endpoint | ✅ Complete |
+| **Pinecone** | Hosted-inference comps ranking — `PineconeCompsRanker` with `multilingual-e5-large`, fallback to local embeddings | ✅ Complete |
+| **Source Reliability** | 3-factor evidence confidence (type × recency × source tier), 35-entry domain tier map, `source_reliability_tier` field on all evidence | ✅ Complete |
+| **Discount Transparency** | Per-methodology configurable illiquidity discounts via YAML, `_discount_config.py`, explicit derivation steps | ✅ Complete |
+| **Frontend** | Next.js 16 + React 19 + Tailwind v4 — 6 routes, full API integration, dark mode, source reliability badges | ✅ Complete |
 
 ### Automated Research Agent (`POST /research`)
 
@@ -636,6 +666,49 @@ The system will then automatically:
 - Fetch real EV/Revenue multiples from Yahoo Finance
 - Rank peers by semantic similarity using sentence-transformer embeddings
 - Compute a fully auditable valuation with derivation steps and citations
+
+---
+
+## Evidence Quality & Source Reliability
+
+Every valuation result includes detailed evidence sourcing with **source reliability tiers**, letting auditors understand the confidence basis for each signal.
+
+### Confidence Scoring
+
+**Score** = `base_type_confidence × recency_multiplier × source_reliability_multiplier`
+
+Domain-based trust tiers (examples):
+
+| Domain class | Multiplier | Examples |
+|---|---|---|
+| Tier 1 — Financial data terminals | 0.95 | `bloomberg.com`, `reuters.com`, `wsj.com` |
+| Tier 2 — Authoritative tech/finance press | 0.90 | `techcrunch.com`, `forbes.com`, `cnbc.com` |
+| Tier 3 — General news | 0.80 | `businessinsider.com`, `nytimes.com` |
+| Tier 4 — Aggregators / secondary | 0.70 | `crunchbase.com`, `pitchbook.com` |
+| Tier 5 — Blogs / social | 0.50–0.60 | `medium.com`, `reddit.com` |
+
+See `src/vc_audit_tool/data_sources/evidence_patterns.py` → `SOURCE_RELIABILITY_TIERS` for the full 35-entry mapping.
+
+### Private Company Discount Transparency
+
+Every methodology applies a **configurable illiquidity discount** defined in `config/methodology_rules_v1.yaml`:
+
+```yaml
+private_company_discount:
+  defaults:
+    comparable_companies: 25            # public-comps anchor → higher illiquidity adjustment
+    last_round_market_adjusted: 10      # real transaction anchor → lower adjustment
+    last_round_multiple_ratchet: 25     # derived from public comps
+    direct_valuation:
+      has_secondary_evidence: 10        # secondary market trades → lower adjustment
+      no_secondary_evidence: 20         # no secondary → higher adjustment
+  max_allowed: 50
+  exempt: [scorecard, berkus]           # already calibrated for private companies
+```
+
+You can override per-request via `private_company_discount_pct` in the API inputs. The discount and its multiplier always appear explicitly in `derivation_steps`.
+
+---
 
 ### What's Next
 

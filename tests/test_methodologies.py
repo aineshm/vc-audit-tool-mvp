@@ -31,10 +31,12 @@ class LastRoundEdgeCaseTests(unittest.TestCase):
     # ── Happy-path edge cases ──
 
     def test_same_day_round_and_as_of(self) -> None:
-        """When round date equals as-of date, value should be unchanged."""
+        """When round date equals as-of date, index multiplier is 1.0 (no market change).
+        A 10% private-company illiquidity discount is still applied."""
         payload = self._payload(last_round_date="2026-02-18")
         vr = self.engine.evaluate_from_dict(payload).to_dict()["valuation_result"]
-        self.assertAlmostEqual(vr["estimated_fair_value"]["amount"], 100_000_000.0, places=2)
+        # $100M × 1.0 (no index change) × 0.90 (10% default discount) = $90M
+        self.assertAlmostEqual(vr["estimated_fair_value"]["amount"], 90_000_000.0, places=2)
 
     def test_zero_valuation(self) -> None:
         """Zero post-money should produce zero fair value."""
