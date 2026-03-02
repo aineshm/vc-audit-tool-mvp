@@ -146,7 +146,7 @@ class ServerModeTests(unittest.TestCase):
             patch.dict(os.environ, {"VC_AUDIT_MOCK": "0"}, clear=False),
             patch.object(sys, "argv", ["vc-audit-server", "--mode", "mock"]),
             patch("vc_audit_tool.server.ValuationEngine") as engine_cls,
-            patch("vc_audit_tool.server.ValuationStore", return_value=fake_store),
+            patch("vc_audit_tool.server.get_store", return_value=fake_store),
             patch("uvicorn.run"),
         ):
             from vc_audit_tool import server as server_module
@@ -162,7 +162,7 @@ class ServerModeTests(unittest.TestCase):
             patch.dict(os.environ, {"VC_AUDIT_MOCK": "1"}, clear=False),
             patch.object(sys, "argv", ["vc-audit-server"]),
             patch("vc_audit_tool.server.ValuationEngine") as engine_cls,
-            patch("vc_audit_tool.server.ValuationStore", return_value=fake_store),
+            patch("vc_audit_tool.server.get_store", return_value=fake_store),
             patch("uvicorn.run"),
         ):
             from vc_audit_tool import server as server_module

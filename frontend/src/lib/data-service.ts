@@ -17,7 +17,7 @@ export interface DataService {
   runManualValuation(params: ValuationRequest): Promise<ValuationEnvelope>;
 }
 
-class FastAPIDataService implements DataService {
+export class FastAPIDataService implements DataService {
   private baseUrl: string;
 
   constructor() {
@@ -65,14 +65,14 @@ class FastAPIDataService implements DataService {
   }
 
   async runResearch(params: ResearchRequest): Promise<ValuationEnvelope> {
-    return this.fetchJson<ValuationEnvelope>("/research", {
+    return this.fetchJson<ValuationEnvelope>("/api/research", {
       method: "POST",
       body: JSON.stringify(params),
     });
   }
 
   async runReconcile(params: ReconcileRequest): Promise<ReconciledEnvelope> {
-    return this.fetchJson<ReconciledEnvelope>("/reconcile", {
+    return this.fetchJson<ReconciledEnvelope>("/api/reconcile", {
       method: "POST",
       body: JSON.stringify(params),
     });
@@ -87,6 +87,16 @@ class FastAPIDataService implements DataService {
 }
 
 export function createDataService(): DataService {
-  // Future: if NEXT_PUBLIC_SUPABASE_URL is set, return SupabaseDataService
+  if (
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  ) {
+    // Lazy import avoids bundling supabase-js when env vars are absent.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { SupabaseDataService } = require("./supabase-data-service") as {
+      SupabaseDataService: new () => DataService;
+    };
+    return new SupabaseDataService();
+  }
   return new FastAPIDataService();
 }

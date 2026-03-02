@@ -6,11 +6,10 @@ import importlib.metadata
 import json
 import logging
 import os
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 
 from vc_audit_tool.logging_config import get_request_id
 from vc_audit_tool.services.valuation_service import read_json, run_valuation
@@ -18,8 +17,6 @@ from vc_audit_tool.services.valuation_service import read_json, run_valuation
 logger = logging.getLogger("vc_audit_tool.routers.valuation")
 
 router = APIRouter()
-
-_STATIC_DIR = Path(__file__).parent.parent / "static"
 
 
 def _detect_llm_provider() -> str:
@@ -33,6 +30,13 @@ def _detect_llm_provider() -> str:
         if os.getenv(env):
             return name
     return "regex"
+
+
+def _detect_store() -> str:
+    """Detect which valuation store is active."""
+    if os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_KEY"):
+        return "supabase"
+    return "sqlite_wal"
 
 
 @router.get("/health")
@@ -50,7 +54,7 @@ def health() -> dict[str, Any]:
     return {
         "status": "ok",
         "version": version,
-        "store": "sqlite_wal",
+        "store": _detect_store(),
         "llm_provider": _detect_llm_provider(),
         "pinecone_index": pinecone_index,
         "request_id": get_request_id(),
@@ -58,9 +62,9 @@ def health() -> dict[str, Any]:
 
 
 @router.get("/")
-def web_root() -> FileResponse:
-    """Serve the single-page web UI."""
-    return FileResponse(_STATIC_DIR / "index.html")
+def web_root() -> JSONResponse:
+    """API root — UI is served by the Next.js frontend on port 3000."""
+    return JSONResponse({"message": "VC Audit Tool API. UI: http://localhost:3000"})
 
 
 @router.post("/value")

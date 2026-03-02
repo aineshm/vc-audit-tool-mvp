@@ -5,11 +5,14 @@ from __future__ import annotations
 import json
 import logging
 import time
+from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from vc_audit_tool.agent.nodes.assemble import _assemble_last_round
 from vc_audit_tool.exceptions import DataSourceError, ValidationError
+from vc_audit_tool.methodologies._discount_config import get_discount_default
 from vc_audit_tool.services.valuation_service import read_json
 
 logger = logging.getLogger("vc_audit_tool.routers.research")
@@ -73,13 +76,15 @@ async def post_research(request: Request) -> JSONResponse:
     if not research.is_complete:
         elapsed_ms = (time.monotonic() - start) * 1000
         logger.warning(
-            "research_incomplete company=%s missing=%s elapsed_ms=%.1f",
+            "research_incomplete company=%s missing=%s error=%s elapsed_ms=%.1f",
             company_name,
             research.missing_fields,
+            research.error,
             elapsed_ms,
         )
         return JSONResponse(
             {
+                "error": research.error or "Research incomplete — insufficient data found.",
                 "assembled_request": None,
                 "best_available_methodology": research.best_available_methodology,
                 "missing_for_best_available": (
@@ -89,7 +94,7 @@ async def post_research(request: Request) -> JSONResponse:
                 "research_metadata": research.research_metadata,
                 "web_facts": research.web_facts or {},
             },
-            status_code=200,
+            status_code=422,
         )
 
     engine = request.app.state.engine
@@ -106,6 +111,12 @@ async def post_research(request: Request) -> JSONResponse:
         result = engine.evaluate_from_dict(assembled_request)
         result_dict = result.to_dict()
         result_dict["research_metadata"] = research.research_metadata
+        try:
+            store = request.app.state.store
+            store.save(result_dict)
+        except Exception as save_exc:
+            logger.warning("store_save_failed error=%s — returning result anyway", save_exc)
+            result_dict["_store_warning"] = f"Result not persisted: {save_exc}"
         elapsed_ms = (time.monotonic() - start) * 1000
         logger.info(
             "research_ok company=%s methodology=%s request_id=%s elapsed_ms=%.1f",
@@ -117,6 +128,73 @@ async def post_research(request: Request) -> JSONResponse:
         return JSONResponse(result_dict, status_code=200)
     except (ValidationError, DataSourceError) as exc:
         logger.warning("research_valuation_error error=%s", exc)
+        ev_pkg = research.research_metadata.get("evidence_package", {})
+        fallback_req = None
+
+        # Fallback 1: last_round_market_adjusted when comps-based method failed
+        # and web_facts has post-money + round date.
+        if assembled_request is not None and assembled_request.get("methodology") in (
+            "comparable_companies",
+            "last_round_multiple_ratchet",
+        ):
+            lr_req, lr_miss = _assemble_last_round(
+                company_name,
+                assembled_request.get("as_of_date", ""),
+                research.web_facts or {},
+                [],
+            )
+            if lr_req and not lr_miss:
+                fallback_req = lr_req
+                logger.info(
+                    "last_round_fallback company=%s original_error=%s",
+                    company_name,
+                    exc,
+                )
+
+        # Fallback 2: direct_valuation when MODERATE/STRONG evidence exists
+        if fallback_req is None and (
+            ev_pkg.get("consensus_strength") in ("STRONG", "MODERATE")
+            and assembled_request is not None
+            and assembled_request.get("methodology") != "direct_valuation"
+        ):
+            fallback_req = _build_direct_valuation_request(assembled_request, ev_pkg)
+
+        if fallback_req:
+            try:
+                logger.info(
+                    "direct_valuation_fallback company=%s original_error=%s",
+                    company_name,
+                    exc,
+                )
+                result = engine.evaluate_from_dict(fallback_req)
+                result_dict = result.to_dict()
+                result_dict["research_metadata"] = research.research_metadata
+                orig_method = (
+                    assembled_request.get("methodology")
+                    if assembled_request
+                    else "unknown"
+                )
+                result_dict["research_metadata"]["fallback_note"] = (
+                    f"Fell back to {fallback_req.get('methodology')}; "
+                    f"original {orig_method} error: {exc}"
+                )
+                try:
+                    store = request.app.state.store
+                    store.save(result_dict)
+                except Exception as save_exc:
+                    logger.warning("store_save_failed error=%s", save_exc)
+                    result_dict["_store_warning"] = f"Result not persisted: {save_exc}"
+                elapsed_ms = (time.monotonic() - start) * 1000
+                logger.info(
+                    "research_ok_via_fallback company=%s request_id=%s elapsed_ms=%.1f",
+                    result.company_name,
+                    result.request_id,
+                    elapsed_ms,
+                )
+                return JSONResponse(result_dict, status_code=200)
+            except Exception as fallback_exc:
+                logger.warning("direct_valuation_fallback_failed error=%s", fallback_exc)
+
         return JSONResponse(
             {
                 "error": str(exc),
@@ -127,3 +205,35 @@ async def post_research(request: Request) -> JSONResponse:
     except Exception as exc:  # pragma: no cover
         logger.exception("research_unhandled_error error=%s", exc)
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+def _build_direct_valuation_request(
+    original_request: dict[str, Any],
+    evidence_package: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Build a direct_valuation request from the evidence_package dict.
+
+    Returns None if there are insufficient evidence signals to proceed.
+    """
+    evidence_signals = evidence_package.get("evidence", [])
+    if not evidence_signals:
+        return None
+    consensus_strength = evidence_package.get("consensus_strength", "NONE")
+    if consensus_strength == "NONE":
+        return None
+    has_secondary = any(
+        e.get("evidence_type") in ("secondary_market", "post_money_fresh") for e in evidence_signals
+    )
+    return {
+        "company_name": original_request.get("company_name", ""),
+        "methodology": "direct_valuation",
+        "as_of_date": original_request.get("as_of_date", ""),
+        "inputs": {
+            "evidence_signals": evidence_signals[:8],
+            "consensus_strength": consensus_strength,
+            "private_company_discount_pct": get_discount_default(
+                "direct_valuation",
+                has_secondary_evidence=has_secondary,
+            ),
+        },
+    }

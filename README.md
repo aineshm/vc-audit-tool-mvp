@@ -190,7 +190,7 @@ All four must pass before committing:
 ruff check src/ tests/               # linter (pyflakes, isort, bugbear, etc.)
 ruff format --check src/ tests/      # formatter
 mypy src/                            # strict type checking
-python3 -m pytest tests/ -q          # ~555 unit tests
+python3 -m pytest tests/ -q          # ~557 unit tests
 ```
 
 Current status:
@@ -198,7 +198,7 @@ Current status:
 ruff check:   ✅ All checks passed
 ruff format:  ✅ All files already formatted
 mypy:         ✅ Success: no issues found
-pytest:       ✅ 555 passed, 11 deselected (integration)
+pytest:       ✅ 557 passed, 15 deselected (integration)
 ```
 
 ---
@@ -565,6 +565,7 @@ Weights are dynamically adjusted based on data availability (e.g., round stalene
 | **Epic 4** | `POST /research` endpoint — one-call company valuation from just a name | ✅ Complete |
 | **Epic 5** | Observability — `vc-audit cache list/clear` CLI + `vc-audit confidence <id>` report | ✅ Complete |
 | **Phase 2** | Multi-methodology reconciliation — Scorecard & Berkus methods, CompanyProfiler, MethodologySelector (YAML rules), Reconciler, `POST /reconcile` endpoint | ✅ Complete |
+| **Phase 4** | Supabase (PostgreSQL) store integration — stateless client, auto-selects via env vars, backwards compatible with SQLite | ✅ Complete |
 | **Pinecone** | Hosted-inference comps ranking — `PineconeCompsRanker` with `multilingual-e5-large`, fallback to local embeddings | ✅ Complete |
 | **Source Reliability** | 3-factor evidence confidence (type × recency × source tier), 35-entry domain tier map, `source_reliability_tier` field on all evidence | ✅ Complete |
 | **Discount Transparency** | Per-methodology configurable illiquidity discounts via YAML, `_discount_config.py`, explicit derivation steps | ✅ Complete |
@@ -633,6 +634,67 @@ export VC_AUDIT_SEC_USER_AGENT="Your Name your-email@company.com"
 ```
 
 SEC endpoints may return `403` with generic/default user agents.
+
+### Cloud Service Integrations
+
+The tool can be extended with optional cloud services. All are optional and have automatic fallbacks:
+
+#### 1. Supabase (Phase 4) — PostgreSQL Storage
+
+Instead of SQLite WAL, persist valuation runs in a hosted PostgreSQL database:
+
+```bash
+# Set both environment variables to enable Supabase
+export SUPABASE_URL="https://drykfbevdfyivyhnkyfc.supabase.co"
+export SUPABASE_KEY="your-anon-or-service-role-key"
+
+# Install optional dependency
+pip install -e ".[supabase]"
+
+# Start server — auto-detects Supabase and uses it
+python3 -m vc_audit_tool.server
+```
+
+**Table schema:** `valuation_runs (request_id PK, company_name, methodology, as_of_date, fair_value, generated_at_utc, payload JSONB)`
+
+The store is **stateless** — each operation opens a new Supabase client call. SDK manages connection pooling internally.
+
+**Fallback:** If `SUPABASE_URL`/`SUPABASE_KEY` are not set, the server falls back to SQLite WAL automatically.
+
+#### 2. Pinecone — Hosted Vector Embeddings for Comps Ranking
+
+Use Pinecone's serverless inference instead of local embeddings for semantic comparable company matching:
+
+```bash
+export PINECONE_API_KEY="your-pinecone-key"
+export PINECONE_INDEX_NAME="vc-audit-edgar-comps"  # optional, default shown
+# PINECONE_EMBEDDING_MODEL="multilingual-e5-large"  # optional
+
+python3 -m vc_audit_tool.server
+```
+
+**Auto-creation:** The index is automatically created on first use via `ServerlessSpec(cloud="aws", region="us-east-1")` if it doesn't exist.
+
+**Fallback:** If `PINECONE_API_KEY` is not set, the system uses local `all-MiniLM-L6-v2` embeddings instead.
+
+#### 3. Multi-Provider LLM Fallback Chain
+
+The research agent picks the first available LLM provider (try Gemini, fall back to OpenAI, then Claude, then Ollama, then regex):
+
+```bash
+# Set any or all of these
+export GOOGLE_API_KEY="..."         # Gemini Flash (priority 1)
+export OPENAI_API_KEY="..."         # GPT-4o-mini (priority 2)
+export ANTHROPIC_API_KEY="..."      # Claude 3.5 Haiku (priority 3)
+export OLLAMA_MODEL="llama3.2"      # Local Ollama (priority 4)
+# No env vars needed for regex fallback (priority 5)
+
+python3 -m vc_audit_tool.server
+```
+
+Provider order and model defaults are defined in `config/llm_providers.yaml`. Change provider priority without code changes by editing the YAML.
+
+---
 
 ### Can It Value Real Companies Today?
 

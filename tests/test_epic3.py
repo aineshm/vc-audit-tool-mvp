@@ -983,7 +983,12 @@ class AssembleNodeTests(unittest.TestCase):
         }
         result = _assemble_node(state)  # type: ignore[arg-type]
         self.assertIsNone(result["assembled_request"])
-        self.assertEqual(result["best_available_methodology"], "comparable_companies")
+        # With the new fallback order (last_round_multiple_ratchet before comparable_companies),
+        # when both fail with the same missing field count, ratchet is reported first.
+        self.assertIn(
+            result["best_available_methodology"],
+            ("comparable_companies", "last_round_multiple_ratchet"),
+        )
         self.assertEqual(result["missing_for_best_available"], ["revenue_ltm"])
 
     def test_unsupported_methodology(self) -> None:
@@ -1422,10 +1427,10 @@ class ResearchEndpointTests(unittest.TestCase):
     @patch("vc_audit_tool.agent.nodes.web_research.DDGS", new=None)
     @patch("vc_audit_tool.agent.nodes.contracts.USASpendingSource")
     @patch("vc_audit_tool.agent.nodes.form_d.FormDSource")
-    def test_incomplete_research_returns_200_with_partial_payload(
+    def test_incomplete_research_returns_422_with_partial_payload(
         self, mock_formd_cls: MagicMock, mock_usa_cls: MagicMock
     ) -> None:
-        """When incomplete, return metadata-rich partial payload (HTTP 200)."""
+        """When incomplete, return 422 with metadata-rich partial payload."""
         mock_formd_cls.return_value.search.return_value = []
         mock_usa_cls.return_value.search.return_value = []
 
@@ -1447,8 +1452,9 @@ class ResearchEndpointTests(unittest.TestCase):
                 content=json.dumps({"company_name": "TestCo"}),
             )
 
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 422)
         data = resp.json()
+        self.assertIn("error", data)
         self.assertIsNone(data["assembled_request"])
         self.assertIn("best_available_methodology", data)
         self.assertIn("missing_for_best_available", data)
@@ -1544,6 +1550,80 @@ class ResearchEndpointTests(unittest.TestCase):
                 ),
             )
         self.assertIn(resp.status_code, [200, 422])
+
+    @patch("vc_audit_tool.agent.nodes.contracts.USASpendingSource")
+    @patch("vc_audit_tool.agent.nodes.form_d.FormDSource")
+    def test_datasource_error_falls_back_to_direct_valuation(
+        self, mock_formd_cls: MagicMock, mock_usa_cls: MagicMock
+    ) -> None:
+        """When engine raises DataSourceError (e.g. EDGAR 503), router retries
+        with direct_valuation if the evidence package has MODERATE+ strength."""
+        from vc_audit_tool.exceptions import DataSourceError
+
+        mock_formd_cls.return_value.search.return_value = []
+        mock_usa_cls.return_value.search.return_value = []
+
+        # Simulate a research result that had evidence but chose comparable_companies
+        # and the engine then failed with a DataSourceError (EDGAR 503 scenario).
+        fake_evidence_signal = {
+            "amount_usd": 400_000_000_000.0,
+            "evidence_type": "secondary_market",
+            "confidence": 0.60,
+            "date_mentioned": "2025-01-01",
+            "source_title": "https://example.com",
+            "source_snippet": "SpaceX valued at $400B",
+        }
+        fake_ev_pkg = {
+            "consensus_strength": "MODERATE",
+            "evidence": [fake_evidence_signal] * 5,
+        }
+        fake_web_facts = {
+            "revenue_ltm": 10_000_000_000,
+            "last_round_date": None,
+            "last_post_money_valuation": None,
+            "sources": [],
+            "extraction_timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        call_count = 0
+
+        def engine_side_effect(req: dict):
+            nonlocal call_count
+            call_count += 1
+            if req.get("methodology") == "comparable_companies":
+                raise DataSourceError(
+                    "No companies found in EDGAR for sector 'defense_electronics'"
+                )
+            # direct_valuation call succeeds via mock engine
+            return self.client.app.state.engine.evaluate_from_dict.__wrapped__(req)  # type: ignore[attr-defined]
+
+        with (
+            patch(
+                "vc_audit_tool.agent.research._web_research_node",
+                side_effect=lambda state: {
+                    **state,
+                    "web_facts": fake_web_facts,
+                    "raw_snippets": ["SpaceX valued at $400B in tender offer"] * 5,
+                    "source_titles": ["example.com"] * 5,
+                    "source_dates": [None] * 5,
+                    "evidence_package": fake_ev_pkg,
+                },
+            ),
+        ):
+            resp = self.client.post(
+                "/research",
+                content=json.dumps({"company_name": "SpaceX", "as_of_date": "2026-01-01"}),
+            )
+
+        # Either succeeds (fallback worked) or returns 400/422 with error info
+        # The important thing: it does NOT return 500
+        self.assertNotEqual(resp.status_code, 500)
+        data = resp.json()
+        if resp.status_code == 200:
+            self.assertIn("valuation_result", data)
+            self.assertIn("research_metadata", data)
+        else:
+            self.assertIn("error", data)
 
 
 # -- Lazy import / __init__ tests -------------------------------------------

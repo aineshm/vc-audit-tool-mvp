@@ -9,3 +9,5 @@ build/
 .ruff_cache/
 *.db
 data/
+.env
+.env.local

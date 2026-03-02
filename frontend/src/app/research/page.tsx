@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { createDataService } from "@/lib/data-service";
 import type { ValuationEnvelope } from "@/types/api";
 import { getFairValue } from "@/lib/utils";
@@ -19,6 +20,7 @@ const METHODOLOGIES = [
 ];
 
 export default function ResearchPage() {
+  const router = useRouter();
   const [companyName, setCompanyName] = useState("");
   const [asOfDate, setAsOfDate] = useState("");
   const [methodology, setMethodology] = useState("");
@@ -41,6 +43,11 @@ export default function ResearchPage() {
         description_hint: hint || undefined,
       });
       setResult(res);
+      // Redirect to run detail page if we got a request_id back
+      const runId = res.audit_metadata?.request_id;
+      if (runId) {
+        router.push(`/runs/${runId}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {

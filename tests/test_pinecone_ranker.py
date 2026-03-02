@@ -2,7 +2,7 @@
 
 Suite includes:
   1. Factory function tests — verify environment variable handling
-  2. Pinecone ranker unit tests — mock the API client
+  2. Pinecone ranker unit tests — mock the API client (SDK 8.x search() API)
   3. Error handling tests — verify DataSourceError wrapping
 """
 
@@ -58,6 +58,16 @@ def test_get_ranker_respects_custom_embedding_model(monkeypatch):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Helper to build mock search response (SDK 8.x format)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _make_search_response(hits: list[dict]) -> dict:
+    """Build a dict matching the SDK 8.x index.search() response shape."""
+    return {"result": {"hits": hits}}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Pinecone ranker unit tests
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -71,46 +81,37 @@ def test_pinecone_ranker_init():
     assert ranker.source_label == "Pinecone hosted-inference ranker"
 
 
-def test_pinecone_ranker_rank_empty_candidates():
-    """rank() returns [] immediately for empty candidates."""
+def test_pinecone_ranker_rank_empty_candidates_and_description():
+    """rank() returns [] immediately when both candidates and description are empty."""
     ranker = PineconeCompsRanker(index_name="test-index")
-    result = ranker.rank("target description", [], top_k=5)
+    result = ranker.rank("", [], top_k=5)
     assert result == []
 
 
-def test_pinecone_ranker_rank_mocks_client(monkeypatch):
-    """rank() correctly embeds, upserts, and queries with mocked client."""
-    # Create mock Pinecone client
+def test_pinecone_ranker_rank_mocks_client_pre_seeded(monkeypatch):
+    """rank() uses search-only mode when index has >10 pre-seeded records."""
     mock_index = MagicMock()
     mock_client = MagicMock()
     mock_client.Index.return_value = mock_index
+    mock_client.has_index.return_value = True
 
-    # Mock inference.embed responses
-    target_embedding = [0.1, 0.2, 0.3, 0.4]
-    candidate_embeddings = [
-        [0.15, 0.22, 0.35, 0.45],  # AAPL
-        [0.05, 0.15, 0.25, 0.35],  # MSFT
-    ]
-    mock_index.inference.embed.side_effect = [
-        candidate_embeddings,  # First call: embed candidates
-        target_embedding,  # Second call: embed target
-    ]
-
-    # Mock query response (2 matches)
-    mock_index.query.return_value = {
-        "matches": [
-            {
-                "score": 0.95,
-                "metadata": {"ticker": "AAPL", "company_name": "Apple Inc."},
-            },
-            {
-                "score": 0.85,
-                "metadata": {"ticker": "MSFT", "company_name": "Microsoft Corp."},
-            },
-        ]
+    # Simulate pre-seeded index with many records
+    mock_index.describe_index_stats.return_value = {
+        "namespaces": {"comps": {"record_count": 500}},
     }
 
-    # Patch Pinecone module import
+    # index.search() returns SDK 8.x response shape
+    mock_index.search.return_value = _make_search_response(
+        [
+            {"_score": 0.95, "fields": {
+                "ticker": "AAPL", "company_name": "Apple Inc.", "description": "Tech",
+            }},
+            {"_score": 0.85, "fields": {
+                "ticker": "MSFT", "company_name": "Microsoft Corp.", "description": "Software",
+            }},
+        ]
+    )
+
     with patch("vc_audit_tool.data_sources.pinecone_ranker._ensure_pinecone") as mock_ensure:
         mock_pinecone = MagicMock()
         mock_pinecone.Pinecone.return_value = mock_client
@@ -124,17 +125,62 @@ def test_pinecone_ranker_rank_mocks_client(monkeypatch):
 
         result = ranker.rank("target company", candidates, top_k=5)
 
-    # Verify result
     assert len(result) == 2
     assert result[0].ticker == "AAPL"
     assert result[0].similarity == 0.95
     assert result[1].ticker == "MSFT"
     assert result[1].similarity == 0.85
 
-    # Verify client calls
     mock_client.Index.assert_called_with("test-index")
-    mock_index.upsert.assert_called_once()
-    mock_index.query.assert_called_once()
+    # Pre-seeded mode: search only, no upsert
+    mock_index.upsert_records.assert_not_called()
+    mock_index.search.assert_called_once()
+
+    # Verify search() was called with dict-based query containing inputs={"text": ...}
+    search_kwargs = mock_index.search.call_args.kwargs
+    assert search_kwargs["namespace"] == "comps"
+    query = search_kwargs["query"]
+    assert query["inputs"]["text"] == "target company"
+    # Verify reranking is configured
+    assert "rerank" in search_kwargs
+    assert search_kwargs["rerank"]["model"] == "bge-reranker-v2-m3"
+
+
+def test_pinecone_ranker_rank_mocks_client_upsert_fallback(monkeypatch):
+    """rank() uses upsert-then-search fallback when index has no pre-seeded records."""
+    mock_index = MagicMock()
+    mock_client = MagicMock()
+    mock_client.Index.return_value = mock_index
+    mock_client.has_index.return_value = True
+
+    # Simulate empty index (not pre-seeded)
+    mock_index.describe_index_stats.return_value = {
+        "namespaces": {"comps": {"record_count": 5}},
+    }
+
+    mock_index.search.return_value = _make_search_response(
+        [
+            {"_score": 0.95, "fields": {"ticker": "AAPL", "company_name": "Apple Inc."}},
+        ]
+    )
+
+    with patch("vc_audit_tool.data_sources.pinecone_ranker._ensure_pinecone") as mock_ensure:
+        mock_pinecone = MagicMock()
+        mock_pinecone.Pinecone.return_value = mock_client
+        mock_ensure.return_value = mock_pinecone
+
+        ranker = PineconeCompsRanker(index_name="test-index")
+        candidates = [
+            {"ticker": "AAPL", "company_name": "Apple Inc.", "description": "Tech"},
+        ]
+        result = ranker.rank("target company", candidates, top_k=5)
+
+    assert len(result) == 1
+    assert result[0].ticker == "AAPL"
+    # Upsert fallback: records were upserted then searched in comps_tmp namespace
+    mock_index.upsert_records.assert_called_once()
+    search_kwargs = mock_index.search.call_args.kwargs
+    assert search_kwargs["namespace"] == "comps_tmp"
 
 
 def test_pinecone_ranker_rank_returns_ranked_company_objects():
@@ -142,20 +188,13 @@ def test_pinecone_ranker_rank_returns_ranked_company_objects():
     mock_index = MagicMock()
     mock_client = MagicMock()
     mock_client.Index.return_value = mock_index
+    mock_client.has_index.return_value = True
 
-    mock_index.inference.embed.side_effect = [
-        [[0.1, 0.2]],  # Candidates
-        [0.15, 0.25],  # Target
-    ]
-
-    mock_index.query.return_value = {
-        "matches": [
-            {
-                "score": 0.92,
-                "metadata": {"ticker": "GOOGL", "company_name": "Alphabet Inc."},
-            }
+    mock_index.search.return_value = _make_search_response(
+        [
+            {"_score": 0.92, "fields": {"ticker": "GOOGL", "company_name": "Alphabet Inc."}},
         ]
-    }
+    )
 
     with patch("vc_audit_tool.data_sources.pinecone_ranker._ensure_pinecone") as mock_ensure:
         mock_pinecone = MagicMock()
@@ -183,19 +222,15 @@ def test_pinecone_ranker_rank_respects_top_k():
     mock_index = MagicMock()
     mock_client = MagicMock()
     mock_client.Index.return_value = mock_index
+    mock_client.has_index.return_value = True
 
-    mock_index.inference.embed.side_effect = [
-        [[0.1]] * 5,  # 5 candidates
-        [0.15],  # Target
-    ]
-
-    # Return 5 matches but only ask for top_k=2
-    mock_index.query.return_value = {
-        "matches": [
-            {"score": 0.95, "metadata": {"ticker": f"T{i}", "company_name": f"Company {i}"}}
+    # Pinecone returns 5 hits; top_k=2 should truncate to 2
+    mock_index.search.return_value = _make_search_response(
+        [
+            {"_score": 0.95, "fields": {"ticker": f"T{i}", "company_name": f"Company {i}"}}
             for i in range(5)
         ]
-    }
+    )
 
     with patch("vc_audit_tool.data_sources.pinecone_ranker._ensure_pinecone") as mock_ensure:
         mock_pinecone = MagicMock()
@@ -261,15 +296,15 @@ def test_pinecone_ranker_api_error_wrapped():
 
 
 def test_pinecone_ranker_query_error_wrapped():
-    """Wraps Pinecone query errors in DataSourceError."""
+    """Wraps Pinecone search() errors in DataSourceError."""
     mock_index = MagicMock()
     mock_client = MagicMock()
     mock_client.Index.return_value = mock_index
+    mock_client.has_index.return_value = True
 
-    mock_index.inference.embed.side_effect = [
-        [[0.1]],  # Candidates embed succeeds
-        RuntimeError("Query failed"),  # Target embed fails
-    ]
+    # upsert_records succeeds; search fails
+    mock_index.upsert_records.return_value = None
+    mock_index.search.side_effect = RuntimeError("Query failed")
 
     with patch("vc_audit_tool.data_sources.pinecone_ranker._ensure_pinecone") as mock_ensure:
         mock_pinecone = MagicMock()

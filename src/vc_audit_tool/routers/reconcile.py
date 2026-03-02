@@ -123,6 +123,9 @@ async def post_reconcile(request: Request) -> JSONResponse:
             research_metadata=research.research_metadata,
         )
 
+        result_dict = result.to_dict()
+        store = request.app.state.store
+        store.save(result_dict)
         elapsed_ms = (time.monotonic() - start) * 1000
         logger.info(
             "reconcile_ok company=%s methods=%d elapsed_ms=%.1f",
@@ -130,7 +133,7 @@ async def post_reconcile(request: Request) -> JSONResponse:
             len(result.methodology_results),
             elapsed_ms,
         )
-        return JSONResponse(result.to_dict(), status_code=200)
+        return JSONResponse(result_dict, status_code=200)
 
     except (ValidationError, DataSourceError) as exc:
         logger.warning("reconcile_valuation_error error=%s", exc)

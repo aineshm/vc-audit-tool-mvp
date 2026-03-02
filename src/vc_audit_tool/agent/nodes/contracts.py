@@ -21,7 +21,8 @@ def _contracts_node(state: ResearchState) -> ResearchState:
         contracts = source.search(name)
         total = sum(c.award_amount for c in contracts) if contracts else None
         contracts_dicts = [c.to_dict() for c in contracts]
-    except DataSourceError:
+    except DataSourceError as exc:
+        logger.warning("contracts_node error: %s", exc)
         contracts_dicts = []
         total = None
     # Return only the keys this node produces so parallel siblings can merge cleanly.

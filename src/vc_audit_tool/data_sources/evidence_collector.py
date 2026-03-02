@@ -150,24 +150,50 @@ class EvidencePackage:
             return None
         return max(non_secondary, key=lambda e: e.confidence).amount_usd
 
+    @property
+    def avg_confidence(self) -> float:
+        """Average confidence of the top-5 evidence items (or all if fewer)."""
+        if not self.evidence:
+            return 0.0
+        top = sorted(self.evidence, key=lambda e: e.confidence, reverse=True)[:5]
+        return sum(e.confidence for e in top) / len(top)
+
     def recommended_methodology(self) -> str:
-        """Pick the methodology that best fits the available evidence."""
-        strength = self.consensus_strength
+        """Pick the methodology that best fits the available evidence.
+
+        Priority order — use the first methodology whose inputs are satisfied:
+        1. last_round_market_adjusted   — post-money + round date (most auditable)
+        2. last_round_multiple_ratchet  — post-money + revenue (no round date)
+        3. comparable_companies         — revenue only (sector peer set)
+        4. direct_valuation             — last resort when no structured inputs exist
+        """
         best = self.best_evidence
 
-        if strength in ("STRONG", "MODERATE") and best is not None and best.confidence >= 0.70:
-            return "direct_valuation"
-
-        if best and best.evidence_type == "post_money_fresh" and self.best_round_date:
+        # 1. Any direct valuation signal + round date → market-adjusted last round.
+        # Includes secondary_market, post_money_fresh, post_money_stale — all are
+        # point-in-time valuations that can be market-adjusted forward.
+        _POINT_IN_TIME_TYPES = {
+            "secondary_market",
+            "post_money_fresh",
+            "post_money_stale",
+        }
+        has_point_valuation = best and best.evidence_type in _POINT_IN_TIME_TYPES
+        if has_point_valuation and self.best_round_date:
             return "last_round_market_adjusted"
 
+        # 2. Any point valuation + revenue (no round date) → multiple ratchet
+        best_point = next(
+            (e for e in self.evidence if e.evidence_type in _POINT_IN_TIME_TYPES), None
+        )
+        if best_point and self.best_revenue:
+            return "last_round_multiple_ratchet"
+
+        # 3. Revenue available → comparable companies
         if self.best_revenue:
             return "comparable_companies"
 
-        if best and best.evidence_type == "post_money_stale" and self.best_round_date:
-            return "last_round_market_adjusted"
-
-        return "comparable_companies"
+        # 4. Fallback: direct valuation from evidence signals
+        return "direct_valuation"
 
     def to_dict(self) -> dict[str, Any]:
         return {

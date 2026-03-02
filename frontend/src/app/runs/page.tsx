@@ -1,17 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { createDataService } from "@/lib/data-service";
 import type { RunSummary } from "@/types/api";
 import { formatMoney, formatDate, methodologyLabel } from "@/lib/utils";
 
 export default function RunsPage() {
+  const pathname = usePathname();
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchRuns = useCallback(() => {
+    setLoading(true);
     const svc = createDataService();
     svc
       .listRuns()
@@ -23,6 +26,9 @@ export default function RunsPage() {
       )
       .finally(() => setLoading(false));
   }, []);
+
+  // Refetch every time user navigates to this page
+  useEffect(fetchRuns, [pathname, fetchRuns]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { createDataService } from "@/lib/data-service";
 import type { RunSummary } from "@/types/api";
 import { formatMoney, formatDate, methodologyLabel } from "@/lib/utils";
@@ -28,16 +29,20 @@ const QUICK_ACTIONS = [
 ];
 
 export default function DashboardPage() {
+  const pathname = usePathname();
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [runsError, setRunsError] = useState(false);
 
-  useEffect(() => {
+  const fetchRuns = useCallback(() => {
     const svc = createDataService();
     svc
       .listRuns()
       .then(setRuns)
       .catch(() => setRunsError(true));
   }, []);
+
+  // Refetch every time user navigates to this page
+  useEffect(fetchRuns, [pathname, fetchRuns]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">

@@ -27,7 +27,10 @@ def _assemble_node(state: ResearchState) -> ResearchState:
     web_facts = state.get("web_facts", {})
     form_d_rounds = state.get("form_d_rounds", [])
     evidence_pkg_dict = state.get("evidence_package", {})
+    # Prefer explicit caller hint; fall back to LLM-generated description from web_facts.
     description_hint = (state.get("description_hint") or "").strip()
+    if not description_hint:
+        description_hint = (web_facts.get("company_description") or "").strip()
 
     research_metadata: dict[str, Any] = {
         "sources_consulted": [],
@@ -48,6 +51,24 @@ def _assemble_node(state: ResearchState) -> ResearchState:
             f"Web search ({len(state.get('raw_snippets', []))} snippets)"
         )
 
+    # Build a deduplicated, readable source list from all search result titles.
+    all_source_titles: list[str] = state.get("source_titles", [])
+    web_sources = [t for t in all_source_titles if t][:20]
+
+    # Include evidence signal summaries (amount + type + date + source title).
+    evidence_list: list[dict[str, Any]] = evidence_pkg_dict.get("evidence", [])
+    evidence_summary = [
+        {
+            "amount_usd": e.get("amount_usd"),
+            "evidence_type": e.get("evidence_type"),
+            "confidence": round(e.get("confidence", 0), 3),
+            "date_mentioned": e.get("date_mentioned"),
+            "source_title": e.get("source_title"),
+            "source_reliability_tier": e.get("source_reliability_tier"),
+        }
+        for e in evidence_list[:10]
+    ]
+
     research_metadata["extracted_facts"] = {
         "form_d_rounds_found": len(form_d_rounds),
         "government_contracts_found": len(state.get("government_contracts", [])),
@@ -55,7 +76,12 @@ def _assemble_node(state: ResearchState) -> ResearchState:
         "evidence_count": evidence_pkg_dict.get("evidence_count", 0),
         "consensus_strength": evidence_pkg_dict.get("consensus_strength", "NONE"),
         "consensus_valuation_usd": evidence_pkg_dict.get("consensus_valuation"),
-        "web_sources": web_facts.get("sources", [])[:5],
+        "web_sources": web_sources,
+        "evidence_summary": evidence_summary,
+        "company_description": web_facts.get("company_description"),
+        "last_post_money_valuation": web_facts.get("last_post_money_valuation"),
+        "last_round_date": web_facts.get("last_round_date"),
+        "revenue_ltm": web_facts.get("revenue_ltm"),
     }
 
     raw_snippets = state.get("raw_snippets", [])
@@ -99,10 +125,7 @@ def _assemble_node(state: ResearchState) -> ResearchState:
     assembled: dict[str, Any] | None = None
     missing_fields: list[str] = []
 
-    if chosen_methodology == "direct_valuation":
-        assembled, missing_fields = _assemble_direct_valuation(name, as_of_date, pkg)
-
-    if assembled is None and chosen_methodology == "last_round_market_adjusted":
+    if chosen_methodology == "last_round_market_adjusted":
         assembled, missing_fields = _assemble_last_round(name, as_of_date, web_facts, form_d_rounds)
 
     if assembled is None and chosen_methodology in (
@@ -118,6 +141,9 @@ def _assemble_node(state: ResearchState) -> ResearchState:
             description_hint=description_hint,
         )
 
+    if assembled is None and chosen_methodology == "direct_valuation":
+        assembled, missing_fields = _assemble_direct_valuation(name, as_of_date, pkg)
+
     if requested_methodology:
         best_methodology = assembled.get("methodology") if assembled else requested_methodology
         return {
@@ -131,7 +157,14 @@ def _assemble_node(state: ResearchState) -> ResearchState:
 
     if assembled is None:
         attempts = []
-        for method in ["last_round_market_adjusted", "comparable_companies"]:
+        # Try round-based and revenue-based methods first; direct_valuation is last resort.
+        fallback_methods: list[str] = [
+            "last_round_market_adjusted",
+            "last_round_multiple_ratchet",
+            "comparable_companies",
+            "direct_valuation",
+        ]
+        for method in fallback_methods:
             req, miss = _try_assemble(
                 name,
                 as_of_date,

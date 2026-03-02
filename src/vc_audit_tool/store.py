@@ -11,6 +11,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from vc_audit_tool.store_utils import extract_run_fields
+
 DEFAULT_DB_PATH = Path("valuation_runs.db")
 
 
@@ -31,23 +33,30 @@ class ValuationStore:
     # ── public API ──
 
     def save(self, result_dict: dict[str, Any]) -> str:
-        """Persist a valuation result and return its request_id."""
-        vr = result_dict["valuation_result"]
-        am = result_dict["audit_metadata"]
-        request_id: str = am["request_id"]
+        """Persist a valuation or reconcile result and return its request_id."""
+        request_id, company_name, methodology, as_of_date, fair_value, generated_at_utc = (
+            extract_run_fields(result_dict)
+        )
         self._conn.execute(
             """
             INSERT INTO runs (request_id, company_name, methodology, as_of_date,
                               fair_value, generated_at_utc, payload)
             VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(request_id) DO UPDATE SET
+                company_name=excluded.company_name,
+                methodology=excluded.methodology,
+                as_of_date=excluded.as_of_date,
+                fair_value=excluded.fair_value,
+                generated_at_utc=excluded.generated_at_utc,
+                payload=excluded.payload
             """,
             (
                 request_id,
-                vr["company_name"],
-                vr["methodology"],
-                vr["as_of_date"],
-                vr["estimated_fair_value"]["amount"],
-                am["generated_at_utc"],
+                company_name,
+                methodology,
+                as_of_date,
+                fair_value,
+                generated_at_utc,
                 json.dumps(result_dict),
             ),
         )

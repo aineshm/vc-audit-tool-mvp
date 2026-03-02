@@ -18,14 +18,20 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 
 from vc_audit_tool.engine import ValuationEngine
+
+# Load .env before any module-level env var reads so all three cloud services
+# (Supabase, Pinecone, Gemini) are available without manual `export` calls.
+load_dotenv()
 from vc_audit_tool.logging_config import configure_logging, reset_request_id, set_request_id
 from vc_audit_tool.routers import reconcile as reconcile_router
 from vc_audit_tool.routers import research as research_router
 from vc_audit_tool.routers import valuation as valuation_router
-from vc_audit_tool.store import ValuationStore
+from vc_audit_tool.store_factory import get_store
 
 logger = logging.getLogger("vc_audit_tool.server")
 
@@ -39,12 +45,20 @@ configure_logging()
 # ---------------------------------------------------------------------------
 
 engine = ValuationEngine()
-store = ValuationStore()
+store = get_store()
 
 app = FastAPI(
     title="VC Audit Tool",
     description="Auditable valuation engine for private VC portfolio companies.",
     version="0.1.0",
+)
+
+# Allow the Next.js dev server (port 3000) and any configured frontend origin.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Request-ID"],
 )
 
 # Eagerly attach singletons to app.state so routers can access them via
@@ -112,7 +126,7 @@ def main() -> int:
 
     # Re-initialise the module-level store with the user-chosen DB path.
     global store  # noqa: PLW0603
-    store = ValuationStore(Path(args.db))
+    store = get_store(Path(args.db))
 
     # Keep app.state in sync with the re-initialised singletons.
     app.state.engine = engine

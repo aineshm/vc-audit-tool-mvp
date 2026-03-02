@@ -61,7 +61,9 @@ class ComparableCompaniesMethodology(ValuationMethodology):
             f"Applied {statistic} EV/Revenue multiple of {selected_multiple:.2f}x.",
             f"Applied private-company discount of {private_discount_pct:.2f}%.",
         ]
+        peer_lines = ", ".join(f"{c.ticker} ({float(c.ev_to_revenue):.2f}x)" for c in comps[:8])
         derivation_steps = [
+            f"Peer companies selected ({peer_group_descriptor}): {peer_lines}.",
             f"Select peer multiple ({statistic}): {selected_multiple:.2f}x.",
             f"Apply multiple to LTM revenue: {float(revenue):,.2f} * "
             f"{selected_multiple:.2f} = {float(gross_value):,.2f} USD.",

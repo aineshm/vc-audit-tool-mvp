@@ -194,11 +194,11 @@ class ConsensusValuationTests(unittest.TestCase):
 class RecommendedMethodologyTests(unittest.TestCase):
     """Tests for EvidencePackage.recommended_methodology()."""
 
-    def test_empty_package_returns_fallback(self) -> None:
-        """No evidence should return comparable_companies or last_round."""
+    def test_empty_package_returns_direct_valuation_fallback(self) -> None:
+        """No evidence, no revenue → direct_valuation as last resort."""
         pkg = _make_package([])
         method = pkg.recommended_methodology()
-        self.assertIn(method, ("comparable_companies", "last_round_market_adjusted"))
+        self.assertEqual(method, "direct_valuation")
 
     def test_strong_evidence_returns_direct_valuation(self) -> None:
         base = 1e9
@@ -218,12 +218,55 @@ class RecommendedMethodologyTests(unittest.TestCase):
                 _make_evidence(confidence=0.70, amount_usd=1.2e9),
             ]
         )
-        # MODERATE strength, best confidence >= 0.70 → direct_valuation
+        # MODERATE strength, avg_confidence >= 0.55 → direct_valuation
         self.assertEqual(pkg.recommended_methodology(), "direct_valuation")
+
+    def test_many_moderate_signals_returns_direct_valuation(self) -> None:
+        """SpaceX scenario: 11 signals, each ~0.60 conf, avg > 0.55 → direct."""
+        signals = [_make_evidence(confidence=0.60, amount_usd=400e9) for _ in range(11)]
+        pkg = _make_package(signals)
+        # consensus_strength=MODERATE (>=2 items), avg_confidence=0.60 >= 0.55
+        self.assertEqual(pkg.recommended_methodology(), "direct_valuation")
+
+    def test_evidence_no_revenue_returns_direct_valuation(self) -> None:
+        """2 signals with no revenue and no round date → direct_valuation fallback."""
+        pkg = _make_package(
+            [
+                _make_evidence(confidence=0.40, amount_usd=1e9),
+                _make_evidence(confidence=0.40, amount_usd=1.1e9),
+            ]
+        )
+        # No revenue, no round date → direct_valuation (last resort)
+        self.assertEqual(pkg.recommended_methodology(), "direct_valuation")
+
+    def test_revenue_only_returns_comparable_companies(self) -> None:
+        """Revenue but no evidence signals → comparable_companies."""
+        pkg = _make_package([])
+        pkg.revenue_signals.append(1_000_000_000.0)
+        self.assertEqual(pkg.recommended_methodology(), "comparable_companies")
+
+    def test_avg_confidence_property(self) -> None:
+        """avg_confidence averages top-5 signals."""
+        pkg = _make_package(
+            [
+                _make_evidence(confidence=0.90),
+                _make_evidence(confidence=0.80),
+                _make_evidence(confidence=0.60),
+                _make_evidence(confidence=0.60),
+                _make_evidence(confidence=0.60),
+                _make_evidence(confidence=0.10),  # should be excluded from top-5
+            ]
+        )
+        # top-5: 0.90, 0.80, 0.60, 0.60, 0.60 → avg = 0.70
+        self.assertAlmostEqual(pkg.avg_confidence, 0.70, places=5)
 
     def test_weak_evidence_does_not_return_direct_valuation(self) -> None:
         pkg = _make_package([_make_evidence(confidence=0.5, amount_usd=1e9)])
-        self.assertNotEqual(pkg.recommended_methodology(), "direct_valuation")
+        # WEAK strength (only 1 signal) → not direct_valuation via MODERATE gate
+        # but falls to last line: evidence exists → direct_valuation
+        # This is intentional — single weak signal still tries direct_valuation
+        # rather than comparable_companies with no revenue
+        self.assertEqual(pkg.recommended_methodology(), "direct_valuation")
 
 
 # ---------------------------------------------------------------------------

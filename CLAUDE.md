@@ -62,6 +62,10 @@ export PINECONE_API_KEY="..."
 export PINECONE_INDEX_NAME="vc-audit-edgar-comps"       # optional, default
 export PINECONE_EMBEDDING_MODEL="multilingual-e5-large"  # optional, default
 
+# Optional Supabase (enables PostgreSQL store instead of SQLite WAL)
+export SUPABASE_URL="https://drykfbevdfyivyhnkyfc.supabase.co"
+export SUPABASE_KEY="..."                                # anon or service-role key
+
 # Mock mode
 export VC_AUDIT_MOCK=1
 ```
@@ -85,8 +89,11 @@ The codebase follows a **protocol-based architecture** for data sources, allowin
 | `src/vc_audit_tool/data_sources/pinecone_ranker.py` | Pinecone-backed comps ranker |
 | `src/vc_audit_tool/data_sources/ranker_factory.py` | `get_ranker()` — Pinecone if key set, else local |
 | `src/vc_audit_tool/data_sources/evidence_patterns.py` | `SOURCE_RELIABILITY_TIERS` (35-entry domain map), 3-factor confidence scoring |
+| `src/vc_audit_tool/store.py` | SQLite WAL-backed valuation run storage |
+| `src/vc_audit_tool/store_supabase.py` | Supabase (PostgreSQL) valuation run storage — Phase 4 |
+| `src/vc_audit_tool/store_factory.py` | `get_store()` — Supabase if SUPABASE_URL+SUPABASE_KEY set, else SQLite |
 | `frontend/` | Next.js 16 + React 19 + Tailwind v4 frontend |
-| `tests/` | Test suite (~555 tests) |
+| `tests/` | Test suite (~557 tests) |
 | `examples/` | Sample JSON request files |
 
 ### Core Patterns
@@ -139,7 +146,7 @@ The codebase follows a **protocol-based architecture** for data sources, allowin
 - `POST /api/value` — Alias for `/value` (used by frontend)
 - `POST /research` — Automated research + valuation from company name
 - `POST /reconcile` — Multi-methodology reconciled valuation
-- `GET /health` — Health check (returns `version`, `store`, `llm_provider`, `pinecone_index`, `request_id`)
+- `GET /health` — Health check (returns `version`, `store` (sqlite_wal/supabase), `llm_provider`, `pinecone_index`, `request_id`)
 - `GET /api/runs` — List recent valuation runs (summary)
 - `GET /api/runs/{run_id}` — Full payload for a single run
 
@@ -154,9 +161,12 @@ The codebase follows a **protocol-based architecture** for data sources, allowin
 
 ## Development Notes
 
+- **Store abstraction** - `store_factory.get_store()` returns either SQLite or Supabase based on env vars; both implement `ValuationStoreProtocol`
+- **Supabase table** - `valuation_runs` (request_id PK, company_name, methodology, as_of_date, fair_value, generated_at_utc, payload JSONB); RLS disabled
 - **SQLite WAL mode enabled** - Required for concurrent reads/writes during async operations; `wal_checkpoint` on startup
 - **LLM configuration in YAML** - Provider settings, model routing, and cost limits defined in `config/llm_providers.yaml`
 - **Test markers** - `integration` for external API tests, `agent` for LangGraph agent tests, `epic` for milestone tests
 - **Async patterns** - Use `asyncio.to_thread()` for sync I/O (yfinance), native async for HTTP clients
 - **Plan files** - `.claude/plan/stack-rethink.md` and `stack-rethink-v2.md` contain full phase roadmap and status
 - **Request correlation** - `logging_config._request_id_var` (contextvars) propagates `X-Request-ID` through each request
+- **Pinecone auto-creation** - `pinecone_ranker._ensure_index()` creates the index on first use if not present

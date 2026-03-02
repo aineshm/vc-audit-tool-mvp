@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import unittest
 
 from starlette.testclient import TestClient
@@ -33,42 +32,14 @@ class TestWebRoutes(unittest.TestCase):
 
     # -- GET / --
 
-    def test_root_returns_html(self) -> None:
+    def test_root_returns_json_redirect_notice(self) -> None:
+        """GET / now returns JSON pointing to the Next.js UI (old static HTML removed)."""
         resp = self.client.get("/")
         self.assertEqual(resp.status_code, 200)
-        self.assertIn("text/html", resp.headers["content-type"])
-        self.assertIn("VC Audit Tool", resp.text)
-
-    def test_root_defaults_to_research_first_ui(self) -> None:
-        resp = self.client.get("/")
-        self.assertEqual(resp.status_code, 200)
-        self.assertIn("Research Mode (Default)", resp.text)
-        self.assertIn("Run /research", resp.text)
-        self.assertIn("Run /reconcile", resp.text)
-        self.assertIn("Advanced Manual Mode (/api/value)", resp.text)
-        self.assertIn("Run manual /api/value", resp.text)
-
-    def test_root_research_mode_does_not_render_manual_comps_sector(self) -> None:
-        resp = self.client.get("/")
-        self.assertEqual(resp.status_code, 200)
-        match = re.search(
-            r'<section class="mode-card" id="research-mode">(.*?)</section>',
-            resp.text,
-            flags=re.DOTALL,
-        )
-        self.assertIsNotNone(match)
-        self.assertNotIn('id="cc_sector"', match.group(1))
-
-    def test_root_manual_mode_keeps_comps_sector(self) -> None:
-        resp = self.client.get("/")
-        self.assertEqual(resp.status_code, 200)
-        match = re.search(
-            r'<details class="manual-mode" id="manual-mode">(.*?)</details>',
-            resp.text,
-            flags=re.DOTALL,
-        )
-        self.assertIsNotNone(match)
-        self.assertIn('id="cc_sector"', match.group(1))
+        self.assertIn("application/json", resp.headers["content-type"])
+        data = resp.json()
+        self.assertIn("message", data)
+        self.assertIn("localhost:3000", data["message"])
 
     def test_health(self) -> None:
         resp = self.client.get("/health")
