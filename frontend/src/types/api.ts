@@ -85,8 +85,9 @@ export interface ReconciliationSummary {
   concluded_value: number;
   range_low: number;
   range_high: number;
-  methodology_results: MethodologyResult[];
-  weights_used: Record<string, number>;
+  methodology_weights: MethodologyResult[];
+  methodology_results?: MethodologyResult[];
+  weights_used?: Record<string, number>;
   rationale: string;
   divergence_flag: boolean;
 }

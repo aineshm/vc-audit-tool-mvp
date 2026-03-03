@@ -143,7 +143,7 @@ export default function ReconcilePage() {
                   Methodology Breakdown
                 </h4>
                 <div className="space-y-2">
-                  {rec.methodology_results.map((mr) => (
+                  {(rec.methodology_weights ?? rec.methodology_results ?? []).map((mr) => (
                     <div
                       key={mr.methodology}
                       className="flex items-center gap-3 py-2 border-t border-sand-100 dark:border-gray-800 first:border-0"
