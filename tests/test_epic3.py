@@ -855,7 +855,7 @@ class WebResearchNodeTests(unittest.TestCase):
             },
             clear=True,
         ):
-            _llm, label = _get_llm()
+            _llm, label, _cfg = _get_llm()
 
         self.assertEqual(label, "google/gemini-test")
         mock_google_cls.assert_called_once()
@@ -879,7 +879,7 @@ class WebResearchNodeTests(unittest.TestCase):
             },
             clear=True,
         ):
-            _llm, label = _get_llm()
+            _llm, label, _cfg = _get_llm()
 
         self.assertEqual(label, "openai/gpt-4o-mini")
         mock_google_cls.assert_called_once()

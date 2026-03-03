@@ -22,6 +22,7 @@ import re
 from datetime import date, datetime, timezone
 from typing import Any
 
+from vc_audit_tool.agent.cost_tracker import CostTracker
 from vc_audit_tool.agent.llm_adapter import (
     HumanMessage,
     SystemMessage,
@@ -167,10 +168,15 @@ def _web_research_node(state: ResearchState) -> ResearchState:
     # ── Round 1: initial broad search ────────────────────────────────────
     raw_snippets, source_titles, source_dates = _ddg_search(name)
 
-    llm, model_label = _get_llm()
+    # Route to lite model for small batches; full model for large ones.
+    llm, model_label, provider_cfg = _get_llm(snippet_count=len(raw_snippets))
+    cost_tracker = CostTracker()
     llm_facts: dict[str, Any] = {}
     if raw_snippets and llm is not None and HumanMessage is not None:
-        llm_facts = _llm_extract_structured(llm, model_label, name, raw_snippets)
+        llm_facts = _llm_extract_structured(
+            llm, model_label, name, raw_snippets,
+            tracker=cost_tracker, provider_cfg=provider_cfg,
+        )
 
     pkg: EvidencePackage = extract_evidence(
         raw_snippets, source_titles, name, as_of, source_dates=source_dates
@@ -213,7 +219,10 @@ def _web_research_node(state: ResearchState) -> ResearchState:
         # Re-extract evidence from the expanded corpus
         pkg = extract_evidence(raw_snippets, source_titles, name, as_of, source_dates=source_dates)
         if llm is not None and HumanMessage is not None:
-            new_llm = _llm_extract_structured(llm, model_label, name, new_snippets)
+            new_llm = _llm_extract_structured(
+                llm, model_label, name, new_snippets,
+                tracker=cost_tracker, provider_cfg=provider_cfg,
+            )
             if new_llm:
                 llm_facts.update({k: v for k, v in new_llm.items() if v})
                 _merge_llm_into_package(llm_facts, pkg, as_of)
@@ -228,13 +237,16 @@ def _web_research_node(state: ResearchState) -> ResearchState:
 
     logger.info(
         "web_research: done company=%s snippets=%d evidence=%d "
-        "has_post_money=%s has_round_date=%s has_revenue=%s",
+        "has_post_money=%s has_round_date=%s has_revenue=%s "
+        "llm_calls=%d total_cost_usd=%.6f",
         name,
         len(raw_snippets),
         len(pkg.evidence),
         bool(web_facts.get("last_post_money_valuation")),
         bool(web_facts.get("last_round_date")),
         bool(web_facts.get("revenue_ltm")),
+        cost_tracker.call_count,
+        cost_tracker.total_cost,
     )
 
     # Stamp source_titles into web_facts now that the full list is known.
