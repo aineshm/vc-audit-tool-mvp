@@ -31,12 +31,45 @@ from vc_audit_tool.data_sources.evidence_patterns import (  # noqa: F401
     _find_nearby_date,
     _is_delta_context,
     _is_raise_amount_context,
+    _is_rumoured_round,
+    _is_valuation_context,
     _parse_amount,
     _rough_age_months,
     _source_reliability_multiplier,
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ── Date helpers ─────────────────────────────────────────────────────────
+
+
+def _date_sortable(date_str: str) -> str:
+    """Convert a round date string to a sortable ISO-like key.
+
+    Handles: "YYYY-MM-DD", "Month YYYY", "Mon YYYY", "YYYY".
+    Returns the original string as fallback so unknown formats still compare.
+
+    Used by ``EvidencePackage.best_round_date`` to select the most recent
+    signal rather than the first one found in document order.
+    """
+    cleaned = date_str.strip()
+    for fmt in (
+        "%Y-%m-%d",
+        "%B %d, %Y",
+        "%b %d, %Y",
+        "%B %d %Y",
+        "%b %d %Y",
+        "%B %Y",
+        "%b %Y",
+    ):
+        try:
+            return datetime.strptime(cleaned, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    if cleaned.isdigit() and len(cleaned) == 4:
+        return f"{cleaned}-01-01"
+    return cleaned
 
 
 # ── Dataclasses ──────────────────────────────────────────────────────────
@@ -137,7 +170,16 @@ class EvidencePackage:
 
     @property
     def best_round_date(self) -> str | None:
-        return self.round_date_signals[0] if self.round_date_signals else None
+        """Return the most recent round date signal, or None.
+
+        Signals are collected in document order, which is search-result order —
+        an older article appearing first would otherwise anchor the methodology
+        to a stale round date.  Sorting by parsed date ensures the most recent
+        confirmed round drives market-adjustment calculations.
+        """
+        if not self.round_date_signals:
+            return None
+        return max(self.round_date_signals, key=_date_sortable)
 
     @property
     def best_post_money(self) -> float | None:
@@ -195,6 +237,35 @@ class EvidencePackage:
 
         # 4. Fallback: direct valuation from evidence signals
         return "direct_valuation"
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> EvidencePackage:
+        """Deserialise an EvidencePackage from ``to_dict()`` output.
+
+        Used by ``_assemble_node`` to reconstruct the package that was computed
+        in ``_web_research_node`` without re-running ``extract_evidence``.  This
+        preserves any LLM-judge overrides baked into the package at search time.
+        """
+        pkg = cls(company_name=d.get("company_name", ""))
+        for ev_dict in d.get("evidence", []):
+            pkg.evidence.append(
+                ValuationEvidence(
+                    amount_usd=float(ev_dict["amount_usd"]),
+                    evidence_type=str(ev_dict["evidence_type"]),
+                    source_snippet=str(ev_dict.get("source_snippet", "")),
+                    date_mentioned=ev_dict.get("date_mentioned"),
+                    source_title=ev_dict.get("source_title"),
+                    confidence=float(ev_dict.get("confidence", 0.5)),
+                    source_reliability_tier=ev_dict.get("source_reliability_tier"),
+                )
+            )
+        if d.get("best_revenue"):
+            pkg.revenue_signals = [float(d["best_revenue"])]
+        # best_round_date is already resolved to a single string at storage time;
+        # inject it as the sole entry so max() returns it correctly.
+        if d.get("best_round_date"):
+            pkg.round_date_signals = [str(d["best_round_date"])]
+        return pkg
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -263,7 +334,10 @@ def extract_evidence(
 
                     # Skip funding-raise amounts (e.g. "raised $110B" when the
                     # valuation is a separate number like "at a $840B valuation").
-                    if _is_raise_amount_context(snippet, m.start()):
+                    # Only applied to "direct" label — "round", "secondary",
+                    # "analyst", and "direct_val_first" patterns are exempt
+                    # because they already extract valuation explicitly.
+                    if label == "direct" and _is_raise_amount_context(snippet, m.start()):
                         continue
 
                     date_str = structured_date or _find_nearby_date(snippet, m.start(), as_of=as_of)
@@ -320,6 +394,8 @@ def _extract_revenue_signals(snippet: str, pkg: EvidencePackage) -> None:
         m = pat.search(snippet)
         if m:
             try:
+                if _is_valuation_context(snippet, m.start()):
+                    continue
                 amount = _parse_amount(m.group(1), m.group(2))
                 if 100_000 < amount < 100_000_000_000:
                     pkg.revenue_signals.append(amount)
@@ -327,24 +403,53 @@ def _extract_revenue_signals(snippet: str, pkg: EvidencePackage) -> None:
                 pass
 
 
+_MONTHS_PAT = (
+    r"(?:January|February|March|April|May|June|July|August|"
+    r"September|October|November|December)"
+)
+
+_ROUND_DATE_PATTERN = re.compile(
+    r"(?:series|round|funding|raised|closed)[^.]{0,100}?"
+    r"(" + _MONTHS_PAT + r"\s+\d{1,2}[,\s]+\d{4}"
+    r"|" + _MONTHS_PAT + r"\s+\d{4}"
+    r"|\d{4}-\d{2}-\d{2})",
+    re.IGNORECASE,
+)
+
+
 def _extract_round_date_signals(snippet: str, pkg: EvidencePackage) -> None:
-    round_ctx = re.compile(
-        r"(?:series|round|funding|raised|closed)[^.]{0,100}?"
-        r"((?:January|February|March|April|May|June|July|August|September|"
-        r"October|November|December)\s+\d{4}|\d{4}-\d{2}-\d{2})",
-        re.IGNORECASE,
-    )
-    for m in round_ctx.finditer(snippet):
+    for m in _ROUND_DATE_PATTERN.finditer(snippet):
         pkg.round_date_signals.append(m.group(1))
 
 
+def _source_domain(ev: ValuationEvidence) -> str:
+    """Extract a short domain identifier for deduplication keying.
+
+    Two evidence items from the same publisher (same source_domain) reporting
+    the same valuation are considered duplicates.  Items from different publishers
+    reporting the same figure are kept as independent confirmations — this allows
+    consensus_strength to correctly fire STRONG when 3+ distinct sources agree.
+    """
+    title = (ev.source_title or "").lower()
+    for keyword, _, _ in SOURCE_RELIABILITY_TIERS:
+        if keyword in title:
+            return keyword  # e.g. "bloomberg", "techcrunch"
+    return title[:30]  # fallback: first 30 chars of title
+
+
 def _deduplicate(evidence: list[ValuationEvidence]) -> list[ValuationEvidence]:
-    """Remove near-duplicate evidence (within 15% of each other, same type)."""
+    """Retain one item per (amount_bucket, evidence_type, source_domain) triple.
+
+    Same source + same amount = duplicate.
+    Different sources + same amount = independent confirmation (kept).
+    """
     kept: list[ValuationEvidence] = []
     for ev in sorted(evidence, key=lambda e: e.confidence, reverse=True):
+        domain = _source_domain(ev)
         is_dup = any(
             abs(ev.amount_usd - k.amount_usd) / max(k.amount_usd, 1) < 0.15
             and ev.evidence_type == k.evidence_type
+            and _source_domain(k) == domain
             for k in kept
         )
         if not is_dup:

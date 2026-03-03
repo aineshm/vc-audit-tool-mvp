@@ -38,12 +38,16 @@ _DIRECT_VALUATION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
         ),
         "direct",
     ),
+    # Pattern 2: "valued at/valuation/worth $X" — starts with valuation keyword, so the
+    # raise-amount suppressor must NOT apply (label "direct_val_first" exempts it).
+    # Also extended to include million/M so "$5M valued at" works.
     (
         re.compile(
-            r"(?:valuation|valued at|worth|priced at)\s+\$?([\d,.]+)\s*(trillion|billion|T|B)\b",
+            r"(?:valuation|valued at|worth|priced at)\s+"
+            r"\$?([\d,.]+)\s*(trillion|billion|million|T|B|M)\b",
             re.IGNORECASE,
         ),
-        "direct",
+        "direct_val_first",
     ),
     (
         re.compile(
@@ -62,10 +66,25 @@ _DIRECT_VALUATION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
         ),
         "secondary",
     ),
+    # Pattern 5: Anchor-pair extraction — captures the POST-MONEY VALUATION from sentences
+    # that mention both a raise amount AND a valuation.
+    # Extended verb set covers all common finance-journalism phrasings:
+    #   "raised $1B at a $5B valuation"
+    #   "closes $1B funding at $5B post-money"
+    #   "World Labs inks $1B deal at $5B"
+    #   "reportedly in talks to raise a new round at a $5B valuation"
+    #   "lands $1B Series E at $5B post-money valuation"
+    # m.start() points to the verb, so _is_raise_amount_context checks the prefix
+    # BEFORE the verb — which normally contains no raise verbs, keeping this intact.
+    # The trailing valuation keyword is optional to handle bare "at $5B" cases.
     (
         re.compile(
-            r"(?:raised|closed|completed)[^.]{0,120}?\bat\s+(?:a\s+|an\s+)?\$?([\d,.]+)\s*(billion|B)\b"
-            r"[^.]{0,60}?(?:valuation|post.money|post_money|value)\b",
+            r"(?:rais(?:e[ds]?|ing)|clos(?:e[ds]?|ing)\s*(?:a\s+)?|completed?|"
+            r"lands?(?:ed)?|inks?(?:ed)?|nabs?(?:bed)?|snags?(?:ged)?|bags?(?:ged)?|"
+            r"secures?(?:d)?|brings?\s+in|pulls?\s+in)[^.]{0,120}?"
+            r"\bat\s+(?:a\s+|an\s+|the\s+)?(?:post.?money\s+)?"
+            r"\$?([\d,.]+)\s*(billion|million|B|M)\b"
+            r"(?:[^.]{0,60}?(?:valuation|post.?money|post_money|value)\b)?",
             re.IGNORECASE,
         ),
         "round",
@@ -73,6 +92,18 @@ _DIRECT_VALUATION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(
             r"post.money\s+(?:valuation\s+of\s+)?\$([\d,.]+)\s*(billion|million|B|M)\b",
+            re.IGNORECASE,
+        ),
+        "round",
+    ),
+    # Pattern 8: "values [company] at $Y" or "puts [company] valuation at $Y"
+    # Covers: "$1B round values company at $5B", "new funding values World Labs at $5B",
+    #         "$1B deal puts company valuation at $5B"
+    (
+        re.compile(
+            r"(?:puts?\s+(?:\w+\s+){0,4}(?:valuation|value)\s+at\s*|"
+            r"values?\s+(?:\w+\s+){0,4}at\s+)"
+            r"\$?([\d,.]+)\s*(billion|million|B|M)\b",
             re.IGNORECASE,
         ),
         "round",
@@ -95,9 +126,17 @@ _MULTIPLIERS: dict[str, float] = {
     "m": 1_000_000,
 }
 
+_MONTHS_RE = (
+    r"(?:January|February|March|April|May|June|July|August|"
+    r"September|October|November|December)"
+)
+
 _DATE_NEAR_SIGNAL = re.compile(
-    r"((?:January|February|March|April|May|June|July|August|September|October|November|December)"
-    r"\s+\d{4}|\d{4}-\d{2}-\d{2}|\d{4})",
+    r"(" + _MONTHS_RE + r"\s+\d{1,2}[,\s]+\d{4}"
+    r"|" + _MONTHS_RE + r"\s+\d{4}"
+    r"|\d{4}-\d{2}-\d{2}"
+    r"|\d{4}"
+    r")",
     re.IGNORECASE,
 )
 
@@ -122,14 +161,21 @@ _RELATIVE_DATE_PATTERN = re.compile(
 # These look back from the matched dollar sign for financing verbs.
 
 _RAISE_CONTEXT_PATTERNS: list[re.Pattern[str]] = [
-    # Equity fundraising
-    re.compile(r"\braised?\b", re.IGNORECASE),
+    # Equity fundraising — all common conjugations
+    re.compile(r"\braise[ds]?\b", re.IGNORECASE),  # raise, raised, raises
+    re.compile(r"\braising\b", re.IGNORECASE),  # raising
     re.compile(r"\bfundraise[ds]?\b", re.IGNORECASE),
     re.compile(r"\bfunding\s+round\b", re.IGNORECASE),
     re.compile(r"\bclosed\s+(?:a|on\s+a)\b", re.IGNORECASE),
     re.compile(r"\bsecured\b", re.IGNORECASE),
     re.compile(r"\binvested\b", re.IGNORECASE),
     re.compile(r"\bcapital\s+raise\b", re.IGNORECASE),
+    # Finance-journalism verbs: "company lands/inks/bags/snags $X round"
+    re.compile(r"\blands?\b", re.IGNORECASE),  # lands, land
+    re.compile(r"\binks?\b", re.IGNORECASE),  # inks, ink
+    re.compile(r"\bnabs?\b", re.IGNORECASE),  # nabs, nab
+    re.compile(r"\bsnags?\b", re.IGNORECASE),  # snags, snag
+    re.compile(r"\bbags?\b", re.IGNORECASE),  # bags, bag
     # Debt / bond issuances — e.g. "World Bank issued $1B bond"
     re.compile(r"\bissued?\b", re.IGNORECASE),
     re.compile(r"\bissuance\b", re.IGNORECASE),
@@ -139,6 +185,15 @@ _RAISE_CONTEXT_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\bloan\b", re.IGNORECASE),
     re.compile(r"\bborrowed?\b", re.IGNORECASE),
 ]
+
+_RUMOUR_PATTERNS = re.compile(
+    r"\b(?:reportedly|rumou?red?|said to be|expected to|in talks|may raise|"
+    r"could raise|potential|seeking|at a potential|planning to raise|"
+    r"according to sources?|sources? (?:say|said|tell|told)|"
+    r"people familiar|people with knowledge|"
+    r"familiar with the (?:matter|deal|situation))\b",
+    re.IGNORECASE,
+)
 
 _DELTA_CONTEXT_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\bboost(?:ed|s)?\s+(?:\S+\s+){0,5}?by\b", re.IGNORECASE),
@@ -154,6 +209,15 @@ _DELTA_CONTEXT_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 # ── Pure helpers ─────────────────────────────────────────────────────────
+
+
+def _is_rumoured_round(snippet: str) -> bool:
+    """Return True when the snippet contains language indicating an unconfirmed round.
+
+    Applies a confidence haircut for phrases like "reportedly raising at $5B" to
+    distinguish speculative signals from confirmed closed-round announcements.
+    """
+    return bool(_RUMOUR_PATTERNS.search(snippet))
 
 
 def _parse_amount(num_str: str, unit: str) -> float:
@@ -243,24 +307,55 @@ def _is_delta_context(snippet: str, match_start: int, lookback: int = 70) -> boo
     return any(pat.search(prefix) for pat in _DELTA_CONTEXT_PATTERNS)
 
 
+_VALUATION_NEAR_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"\bvaluation\b", re.IGNORECASE),
+    re.compile(r"\bvalued\s+at\b", re.IGNORECASE),
+    re.compile(r"\bpost.?money\b", re.IGNORECASE),
+]
+
+
+def _is_valuation_context(snippet: str, match_start: int, window: int = 60) -> bool:
+    """Return True if the dollar amount near match_start is surrounded by valuation keywords.
+
+    Used by _extract_revenue_signals() to suppress false positives where a
+    valuation figure appears near the word 'Revenue' in an SEO-style title like
+    'Company: Valuation, Revenue & Financial Statements'.
+    """
+    start = max(0, match_start - window)
+    end = min(len(snippet), match_start + window)
+    context = snippet[start:end]
+    return any(pat.search(context) for pat in _VALUATION_NEAR_PATTERNS)
+
+
 def _is_raise_amount_context(
     snippet: str,
     match_start: int,
-    lookback: int = 80,
+    lookback: int = 30,
 ) -> bool:
     """Return True when the dollar amount at match_start is a *funding raise*
     amount rather than a post-money valuation.
 
-    Checks the ``lookback`` chars before match_start for verbs like "raised",
-    "fundraise", "closed a", "secured" that indicate the number is the round
-    size.  Only the prefix is checked — forward context is handled by the
-    pattern-level `$` exclusion already present in the regex.
+    Checks the ``lookback`` chars **immediately before** match_start for verbs
+    like "raised", "raises", "fundraise", "secured" that indicate the number is
+    the round size.  The window is kept tight (30 chars) so that raise verbs
+    appearing earlier in the same sentence (e.g. "in talks to raise a round at
+    a $5B valuation" — "raise" is ~35 chars before "$5B") do NOT suppress the
+    valuation amount.
+
+    Only the prefix is checked — forward context (Pattern 1) is handled by the
+    pattern-level `$`-exclusion already present in the regex.
+
+    Only applies to "direct" pattern label — "round", "secondary", "analyst",
+    and "direct_val_first" patterns are exempt (called conditionally in
+    evidence_collector).
 
     Examples:
-      "closed a staggering $110 billion fundraise at an $840B valuation"
-        → True  for $110B position (suppress it)
+      "raised $110 billion at an $840B valuation"
+        → True  for $110B (suppress it — "raised" is 8 chars before "$110B")
+      "in talks to raise a new round at a $5B valuation"
+        → False for $5B ("raise" is >30 chars before "$5B")
       "valued at $840 billion"
-        → False (safe to capture)
+        → False (safe to capture; label "direct_val_first" anyway)
     """
     prefix = snippet[max(0, match_start - lookback) : match_start]
     return any(pat.search(prefix) for pat in _RAISE_CONTEXT_PATTERNS)
@@ -269,7 +364,17 @@ def _is_raise_amount_context(
 def _rough_age_months(date_str: str, as_of: date | None = None) -> float | None:
     aod = as_of or date.today()
     cleaned = date_str.strip()
-    for fmt in ("%Y-%m-%d", "%B %Y", "%b %Y", "%Y"):
+    _fmts = (
+        "%Y-%m-%d",
+        "%B %d, %Y",
+        "%b %d, %Y",
+        "%B %d %Y",
+        "%b %d %Y",
+        "%B %Y",
+        "%b %Y",
+        "%Y",
+    )
+    for fmt in _fmts:
         try:
             d = datetime.strptime(cleaned[: len(fmt) + 2], fmt).date()
             return (aod - d).days / 30.44
@@ -438,6 +543,10 @@ def _classify_evidence_type(
     else:
         ev_type = "analyst_consensus"
         base_conf = EVIDENCE_TYPES["analyst_consensus"] * 0.85
+
+    # Apply rumour haircut — unconfirmed rounds lower evidential weight
+    if _is_rumoured_round(snippet):
+        base_conf *= 0.70
 
     # Apply recency decay — penalises old signals regardless of type
     rec_mult = _recency_multiplier(date_str, as_of, evidence_type=ev_type)
