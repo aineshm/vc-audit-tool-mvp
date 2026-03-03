@@ -30,6 +30,7 @@ from vc_audit_tool.data_sources.evidence_patterns import (  # noqa: F401
     _classify_evidence_type,
     _find_nearby_date,
     _is_delta_context,
+    _is_raise_amount_context,
     _parse_amount,
     _rough_age_months,
     _source_reliability_multiplier,
@@ -258,6 +259,11 @@ def extract_evidence(
 
                     # Skip delta/increment amounts (e.g. "boost by $15B from $70B").
                     if _is_delta_context(snippet, m.start()):
+                        continue
+
+                    # Skip funding-raise amounts (e.g. "raised $110B" when the
+                    # valuation is a separate number like "at a $840B valuation").
+                    if _is_raise_amount_context(snippet, m.start()):
                         continue
 
                     date_str = structured_date or _find_nearby_date(snippet, m.start(), as_of=as_of)

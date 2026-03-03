@@ -26,10 +26,14 @@ EVIDENCE_TYPES = {
 
 # Captures: "$X trillion/billion/million [valuation/valued/worth/value]"
 _DIRECT_VALUATION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # Pattern 1: "$Xb ... valuation/valued/worth/value/price"
+    # NOTE: [^.$] intentionally excludes both '.' (sentence boundary) and '$'
+    # (another dollar amount). This prevents "$110B Raise At A $840B Valuation"
+    # from capturing $110B — the intervening '$' stops the match.
     (
         re.compile(
             r"\$([\d,.]+)\s*(trillion|billion|T|B)\b"
-            r"[^.]{0,80}?(?:valuation|valued|worth|value|price)",
+            r"[^.$]{0,80}?(?:valuation|valued|worth|value|price)",
             re.IGNORECASE,
         ),
         "direct",
@@ -48,9 +52,11 @@ _DIRECT_VALUATION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
         ),
         "secondary",
     ),
+    # Pattern 4: "$Xb ... tender offer/secondary/buyback/share sale"
+    # Same '$' exclusion to avoid jumping over an intervening dollar amount.
     (
         re.compile(
-            r"\$([\d,.]+)\s*(trillion|billion|T|B)\b[^.]{0,80}?"
+            r"\$([\d,.]+)\s*(trillion|billion|T|B)\b[^.$]{0,80}?"
             r"(?:tender\s*offer|secondary|buyback|share\s*sale)",
             re.IGNORECASE,
         ),
@@ -58,7 +64,7 @@ _DIRECT_VALUATION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     ),
     (
         re.compile(
-            r"(?:raised|closed|completed)[^.]{0,120}?\bat\s+(?:a\s+)?\$?([\d,.]+)\s*(billion|B)\b"
+            r"(?:raised|closed|completed)[^.]{0,120}?\bat\s+(?:a\s+|an\s+)?\$?([\d,.]+)\s*(billion|B)\b"
             r"[^.]{0,60}?(?:valuation|post.money|post_money|value)\b",
             re.IGNORECASE,
         ),
@@ -105,6 +111,25 @@ _RELATIVE_DATE_PATTERN = re.compile(
 # ── Delta/increment context patterns ─────────────────────────────────────
 # Used by _is_delta_context() to suppress false-positive signals like
 # "boost Stripe's valuation by $15B" where $15B is an increment, not a valuation.
+
+# ── Raise/funding-amount context patterns ────────────────────────────────
+# Used by _is_raise_amount_context() to suppress amounts that are clearly the
+# *size of the funding round* rather than the post-money valuation.
+# Examples to suppress:
+#   "raised $110 billion in a funding round"
+#   "closed a staggering $110B fundraise"
+#   "secured $40B in fresh capital"
+# These look back from the matched dollar sign for financing verbs.
+
+_RAISE_CONTEXT_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"\braised?\b", re.IGNORECASE),
+    re.compile(r"\bfundraise[ds]?\b", re.IGNORECASE),
+    re.compile(r"\bfunding\s+round\b", re.IGNORECASE),
+    re.compile(r"\bclosed\s+(?:a|on\s+a)\b", re.IGNORECASE),
+    re.compile(r"\bsecured\b", re.IGNORECASE),
+    re.compile(r"\binvested\b", re.IGNORECASE),
+    re.compile(r"\bcapital\s+raise\b", re.IGNORECASE),
+]
 
 _DELTA_CONTEXT_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\bboost(?:ed|s)?\s+(?:\S+\s+){0,5}?by\b", re.IGNORECASE),
@@ -207,6 +232,29 @@ def _is_delta_context(snippet: str, match_start: int, lookback: int = 70) -> boo
     """
     prefix = snippet[max(0, match_start - lookback) : match_start]
     return any(pat.search(prefix) for pat in _DELTA_CONTEXT_PATTERNS)
+
+
+def _is_raise_amount_context(
+    snippet: str,
+    match_start: int,
+    lookback: int = 80,
+) -> bool:
+    """Return True when the dollar amount at match_start is a *funding raise*
+    amount rather than a post-money valuation.
+
+    Checks the ``lookback`` chars before match_start for verbs like "raised",
+    "fundraise", "closed a", "secured" that indicate the number is the round
+    size.  Only the prefix is checked — forward context is handled by the
+    pattern-level `$` exclusion already present in the regex.
+
+    Examples:
+      "closed a staggering $110 billion fundraise at an $840B valuation"
+        → True  for $110B position (suppress it)
+      "valued at $840 billion"
+        → False (safe to capture)
+    """
+    prefix = snippet[max(0, match_start - lookback) : match_start]
+    return any(pat.search(prefix) for pat in _RAISE_CONTEXT_PATTERNS)
 
 
 def _rough_age_months(date_str: str, as_of: date | None = None) -> float | None:
