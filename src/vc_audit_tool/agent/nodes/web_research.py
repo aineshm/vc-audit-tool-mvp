@@ -257,11 +257,45 @@ def _build_web_facts(
     llm_facts: dict[str, Any],
     raw_snippets: list[str],
 ) -> dict[str, Any]:
-    """Build the web_facts dict from current evidence package + LLM facts."""
+    """Build the web_facts dict from current evidence package + LLM facts.
+
+    Post-money valuation precedence (highest wins):
+      1. Highest-confidence post_money_fresh/stale from evidence package
+         — regex-extracted from snippets, suppresses raise-amount confusion
+      2. LLM-extracted value (now prompted to distinguish raise vs valuation)
+      3. Regex fallback from _extract_last_post_money_valuation
+      4. Evidence package best_post_money
+    When evidence package has a high-confidence fresh value significantly
+    above the LLM value, the evidence package wins — this handles cases
+    like "raised $1B at a $5B valuation" where the LLM returns $1B.
+    """
     inferred_last_round_amount = _extract_last_round_amount_raised(raw_snippets)
     inferred_last_post_money = _extract_last_post_money_valuation(
         raw_snippets
     ) or _extract_best_post_money_from_package(pkg)
+
+    # Build candidate post-money values from evidence package (raise-safe).
+    _POINT_IN_TIME = {"post_money_fresh", "post_money_stale", "secondary_market"}
+    pkg_post_money_candidates = [
+        e for e in pkg.evidence if e.evidence_type in _POINT_IN_TIME
+    ]
+    # Best high-confidence valuation from evidence package.
+    pkg_best_val: float | None = None
+    if pkg_post_money_candidates:
+        top = max(pkg_post_money_candidates, key=lambda e: e.confidence)
+        if top.confidence >= 0.60:
+            pkg_best_val = top.amount_usd
+
+    llm_post_money: float | None = llm_facts.get("last_post_money_valuation")
+
+    # Prefer the higher of LLM and evidence package when both are present —
+    # evidence package patterns already suppress raise-amount context, so a
+    # higher evidence value likely means the LLM mistook the round size for
+    # the post-money (e.g. LLM=$1B, evidence=$5B → use $5B).
+    if pkg_best_val and llm_post_money:
+        chosen_post_money: float | None = max(pkg_best_val, llm_post_money)
+    else:
+        chosen_post_money = pkg_best_val or llm_post_money or inferred_last_post_money
 
     best = pkg.best_evidence
     return {
@@ -270,14 +304,10 @@ def _build_web_facts(
         "last_round_amount_raised": (
             llm_facts.get("last_round_amount_raised") or inferred_last_round_amount
         ),
-        "last_post_money_valuation": (
-            llm_facts.get("last_post_money_valuation")
-            or inferred_last_post_money
-            or (
-                best.amount_usd
-                if best and best.evidence_type in ("post_money_fresh", "post_money_stale")
-                else None
-            )
+        "last_post_money_valuation": chosen_post_money or (
+            best.amount_usd
+            if best and best.evidence_type in ("post_money_fresh", "post_money_stale")
+            else None
         ),
         "company_description": llm_facts.get("company_description"),
         "sources": [],  # populated by caller who has source_titles

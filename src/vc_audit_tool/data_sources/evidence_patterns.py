@@ -122,6 +122,7 @@ _RELATIVE_DATE_PATTERN = re.compile(
 # These look back from the matched dollar sign for financing verbs.
 
 _RAISE_CONTEXT_PATTERNS: list[re.Pattern[str]] = [
+    # Equity fundraising
     re.compile(r"\braised?\b", re.IGNORECASE),
     re.compile(r"\bfundraise[ds]?\b", re.IGNORECASE),
     re.compile(r"\bfunding\s+round\b", re.IGNORECASE),
@@ -129,6 +130,14 @@ _RAISE_CONTEXT_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\bsecured\b", re.IGNORECASE),
     re.compile(r"\binvested\b", re.IGNORECASE),
     re.compile(r"\bcapital\s+raise\b", re.IGNORECASE),
+    # Debt / bond issuances — e.g. "World Bank issued $1B bond"
+    re.compile(r"\bissued?\b", re.IGNORECASE),
+    re.compile(r"\bissuance\b", re.IGNORECASE),
+    re.compile(r"\bbond\b", re.IGNORECASE),
+    re.compile(r"\bdebt\s+offering\b", re.IGNORECASE),
+    re.compile(r"\bnote[s]?\s+offering\b", re.IGNORECASE),
+    re.compile(r"\bloan\b", re.IGNORECASE),
+    re.compile(r"\bborrowed?\b", re.IGNORECASE),
 ]
 
 _DELTA_CONTEXT_PATTERNS: list[re.Pattern[str]] = [
