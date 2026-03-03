@@ -88,12 +88,13 @@ The codebase follows a **protocol-based architecture** for data sources, allowin
 | `src/vc_audit_tool/logging_config.py` | JSON logging + `contextvars` correlation IDs |
 | `src/vc_audit_tool/data_sources/pinecone_ranker.py` | Pinecone-backed comps ranker |
 | `src/vc_audit_tool/data_sources/ranker_factory.py` | `get_ranker()` — Pinecone if key set, else local |
-| `src/vc_audit_tool/data_sources/evidence_patterns.py` | `SOURCE_RELIABILITY_TIERS` (35-entry domain map), 3-factor confidence scoring |
+| `src/vc_audit_tool/data_sources/evidence_patterns.py` | `SOURCE_RELIABILITY_TIERS` (35-entry domain map), 3-factor confidence scoring, `_is_valuation_context()`, `_RUMOUR_PATTERNS` |
+| `src/vc_audit_tool/agent/nodes/web_research.py` | `_SEARCH_CACHE`, `_make_queries()`, `_make_targeted_queries()`, adaptive research loop |
 | `src/vc_audit_tool/store.py` | SQLite WAL-backed valuation run storage |
 | `src/vc_audit_tool/store_supabase.py` | Supabase (PostgreSQL) valuation run storage — Phase 4 |
 | `src/vc_audit_tool/store_factory.py` | `get_store()` — Supabase if SUPABASE_URL+SUPABASE_KEY set, else SQLite |
 | `frontend/` | Next.js 16 + React 19 + Tailwind v4 frontend |
-| `tests/` | Test suite (~557 tests) |
+| `tests/` | Test suite (~594 tests) |
 | `examples/` | Sample JSON request files |
 
 ### Core Patterns
@@ -104,6 +105,9 @@ The codebase follows a **protocol-based architecture** for data sources, allowin
 4. **Multi-provider LLM fallback**: Gemini > OpenAI > Claude > Ollama > Regex fallback
 5. **Source reliability tiers**: 3-factor confidence = `base_type × recency_multiplier × source_tier_multiplier`; 35-entry domain mapping in `evidence_patterns.py`
 6. **Configurable discounts**: Per-methodology illiquidity discounts loaded from `config/methodology_rules_v1.yaml`; applied via `_discount_config.py`; always disclosed in `derivation_steps`
+7. **LLM valuation judge**: `_needs_judgment()` detects >20% spread across candidates; `_llm_judge_valuation()` asks the LLM to pick the correct post-money from conflicting signals
+8. **Per-process search cache**: `_SEARCH_CACHE` in `web_research.py` ensures deterministic results when the same company is researched multiple times per server session
+9. **Revenue contamination guard**: `_is_valuation_context()` suppresses false revenue signals from SEO-style titles ("Valuation, Revenue & Financial Statements")
 
 ### Configuration Patterns
 
@@ -116,6 +120,8 @@ The codebase follows a **protocol-based architecture** for data sources, allowin
 - State: Use `TypedDict, total=False` for LangGraph state (see `agent/state.py`)
 - ResearchState tracks: input → intermediate → raw data → structured evidence → output
 - EvidencePackage replaces unstructured web_facts for audit trail
+- `EvidencePackage.from_dict()` deserialises stored packages to avoid re-running extraction
+- LLM judge (`_llm_judge_valuation`) resolves >20% candidate spread before assembly
 
 ### Decimal Patterns
 
