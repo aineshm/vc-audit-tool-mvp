@@ -120,8 +120,8 @@ src/vc_audit_tool/
 |   +-- edgar_comps.py             # Epic 2.4: Composite source (wires EDGAR+YFin+Embeddings)
 |   +-- form_d.py                  # Epic 3.1: SEC Form D filings via EDGAR EFTS
 |   +-- usaspending.py             # Epic 3.3: Federal contracts via USASpending.gov
-|   +-- evidence_collector.py      # Evidence aggregation across data sources
-|   +-- evidence_patterns.py       # Evidence pattern extraction + temporal weighting
+|   +-- evidence_collector.py      # Evidence aggregation, EvidencePackage.from_dict, _date_sortable
+|   +-- evidence_patterns.py       # Regex patterns, _RUMOUR_PATTERNS, _is_valuation_context, source tiers
 |
 +-- methodologies/
 |   +-- __init__.py
@@ -148,12 +148,13 @@ src/vc_audit_tool/
 |   +-- research.py                # Epic 3: LangGraph research agent graph
 |   +-- state.py                   # ResearchState TypedDict for LangGraph
 |   +-- llm_config.py              # LLM provider config loading (config/llm_providers.yaml)
-|   +-- llm_adapter.py             # LLM provider abstraction (Gemini/OpenAI/Claude/Ollama)
+|   +-- llm_adapter.py             # LLM provider abstraction, _llm_judge_valuation, cost tracking
+|   +-- cost_tracker.py            # Per-call USD cost tracking (input/output tokens)
 |   +-- nodes/
 |       +-- __init__.py
 |       +-- parse.py               # Parse company name, infer sector
 |       +-- form_d.py              # Search SEC Form D filings
-|       +-- web_research.py        # DuckDuckGo search + LLM-structured extraction
+|       +-- web_research.py        # DuckDuckGo search + LLM extraction + search cache + LLM judge
 |       +-- contracts.py           # USASpending.gov federal contracts
 |       +-- assemble.py            # Auto-build ValuationRequest from evidence
 |
@@ -190,6 +191,10 @@ tests/
 +-- test_store.py                  # SQLite store tests
 +-- test_validation.py             # Input validation tests
 +-- test_web.py                    # Web UI endpoint tests
++-- test_evidence_improvements.py  # Evidence quality: rumour patterns, revenue guard, date precision, LLM judge
++-- test_pinecone_ranker.py        # Pinecone comps ranker tests
++-- test_source_reliability.py     # Source reliability tiers + 3-factor confidence
++-- test_discount_config.py        # YAML-driven illiquidity discount tests
 
 examples/
 +-- comps_request.json             # Sample Comparable Companies request
@@ -871,9 +876,11 @@ company_name
 +--------+--------+    -> funding rounds (date, issuer, filing URL)
          v
 +-----------------+
-|  web_research    |  7 DuckDuckGo queries x 6 results
+|  web_research    |  Dynamic DuckDuckGo queries (cached per-process)
 |                  |  -> regex extraction (always)
-|                  |  -> LLM extraction (if provider available)
+|                  |  -> LLM extraction with XML-tagged prompts
+|                  |  -> adaptive follow-up for missing fields (up to 3 rounds)
+|                  |  -> LLM judge when candidates disagree >20%
 +--------+--------+
          v
 +-----------------+
@@ -881,8 +888,8 @@ company_name
 +--------+--------+    -> award amounts, agencies, descriptions
          v
 +-----------------+
-|    assemble      |  Auto-select methodology, validate completeness,
-|                  |  build ValuationRequest dict
+|    assemble      |  Prefer pre-computed evidence package,
+|                  |  auto-select methodology, build ValuationRequest
 +-----------------+
 ```
 
