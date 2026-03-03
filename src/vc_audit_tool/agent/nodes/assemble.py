@@ -7,7 +7,10 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 from vc_audit_tool.agent.state import ResearchState
-from vc_audit_tool.data_sources.evidence_collector import EvidencePackage, extract_evidence
+from vc_audit_tool.data_sources.evidence_collector import (
+    EvidencePackage,
+    extract_evidence,
+)
 from vc_audit_tool.methodologies._discount_config import get_discount_default
 
 logger = logging.getLogger(__name__)
@@ -23,8 +26,10 @@ def _assemble_node(state: ResearchState) -> ResearchState:
     name = state.get("normalised_name", state.get("company_name", ""))
     as_of_date = state.get("as_of_date", date.today().isoformat())
     requested_methodology = state.get("methodology", "")
-    sector = state.get("inferred_sector", "enterprise_software")
     web_facts = state.get("web_facts", {})
+    sector = web_facts.get("llm_inferred_sector") or state.get(
+        "inferred_sector", "enterprise_software"
+    )
     form_d_rounds = state.get("form_d_rounds", [])
     evidence_pkg_dict = state.get("evidence_package", {})
     # Prefer explicit caller hint; fall back to LLM-generated description from web_facts.
@@ -82,6 +87,7 @@ def _assemble_node(state: ResearchState) -> ResearchState:
         "last_post_money_valuation": web_facts.get("last_post_money_valuation"),
         "last_round_date": web_facts.get("last_round_date"),
         "revenue_ltm": web_facts.get("revenue_ltm"),
+        "llm_judge_reason": web_facts.get("llm_judge_reason"),
     }
 
     raw_snippets = state.get("raw_snippets", [])
@@ -91,7 +97,12 @@ def _assemble_node(state: ResearchState) -> ResearchState:
     except ValueError:
         as_of = date.today()
 
-    if raw_snippets:
+    # Prefer the already-computed evidence package from _web_research_node.
+    # This avoids re-running extract_evidence (expensive) and preserves any
+    # LLM-judge overrides that were baked into the package at search time.
+    if evidence_pkg_dict and evidence_pkg_dict.get("evidence"):
+        pkg = EvidencePackage.from_dict(evidence_pkg_dict)
+    elif raw_snippets:
         pkg = extract_evidence(raw_snippets, source_titles, name, as_of)
     else:
         pkg = EvidencePackage(company_name=name)
@@ -299,13 +310,17 @@ def _assemble_comps(
     if not post_money:
         return None, ["last_post_money_valuation", "revenue_at_last_round"]
 
+    # Use historical revenue at round time when available; fall back to current revenue.
+    # When both equal current revenue, the ratchet growth rate is 0% (explicit, intentional).
+    rev_at_round = web_facts.get("revenue_at_last_round") or revenue
+
     payload = {
         "company_name": name,
         "methodology": "last_round_multiple_ratchet",
         "as_of_date": as_of_date,
         "inputs": {
             "last_post_money_valuation": post_money,
-            "revenue_at_last_round": revenue,
+            "revenue_at_last_round": rev_at_round,
             "current_revenue": revenue,
             "sector": sector,
             "statistic": "median",

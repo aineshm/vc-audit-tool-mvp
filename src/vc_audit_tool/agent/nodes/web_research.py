@@ -28,6 +28,8 @@ from vc_audit_tool.agent.llm_adapter import (
     SystemMessage,
     _get_llm,
     _llm_extract_structured,
+    _llm_judge_valuation,
+    _needs_judgment,
 )
 from vc_audit_tool.agent.state import ResearchState
 from vc_audit_tool.data_sources.evidence_collector import (
@@ -37,6 +39,13 @@ from vc_audit_tool.data_sources.evidence_collector import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ── Per-process search cache ──────────────────────────────────────────────
+# Keyed by (company_name, iso_date, canonical_query_string).
+# Prevents non-determinism when the same company is researched multiple times
+# in one server session: DDGS results can vary per call; caching ensures the
+# same snippets feed the evidence extractor on every run.
+_SEARCH_CACHE: dict[str, tuple[list[str], list[str], list[str | None]]] = {}
 
 # ── Optional search backend ───────────────────────────────────────────────
 
@@ -96,6 +105,35 @@ _TARGETED_QUERIES: dict[str, list[str]] = {
 
 # Stop after this many adaptive rounds to prevent unbounded searches.
 _MAX_SEARCH_ROUNDS = 3
+
+
+def _make_queries(as_of: date | None = None) -> list[str]:
+    """Return search query templates with current year range substituted.
+
+    Replaces the hard-coded "2024 OR 2025" token with a dynamic range based on
+    the valuation as_of date so that queries remain accurate across years.
+    """
+    aod = as_of or date.today()
+    year_range = f"{aod.year - 1} OR {aod.year}"
+    return [q.replace("2024 OR 2025", year_range) for q in _SEARCH_QUERIES]
+
+
+def _make_targeted_queries(name: str, as_of: date | None = None) -> dict[str, list[str]]:
+    """Return targeted follow-up queries with current year range applied."""
+    aod = as_of or date.today()
+    year_range = f"{aod.year - 1} OR {aod.year}"
+    old_round_date_range = "2022 OR 2023 OR 2024"
+    new_round_date_range = f"{aod.year - 2} OR {aod.year - 1} OR {aod.year}"
+    result: dict[str, list[str]] = {}
+    for key, templates in _TARGETED_QUERIES.items():
+        updated = [
+            t.replace("2024 OR 2025", year_range).replace(
+                old_round_date_range, new_round_date_range
+            )
+            for t in templates
+        ]
+        result[key] = [q.format(name=name) for q in updated]
+    return result
 
 
 # ── Coverage check ───────────────────────────────────────────────────────
@@ -166,7 +204,7 @@ def _web_research_node(state: ResearchState) -> ResearchState:
         as_of = date.today()
 
     # ── Round 1: initial broad search ────────────────────────────────────
-    raw_snippets, source_titles, source_dates = _ddg_search(name)
+    raw_snippets, source_titles, source_dates = _ddg_search(name, as_of=as_of)
 
     # Route to lite model for small batches; full model for large ones.
     llm, model_label, provider_cfg = _get_llm(snippet_count=len(raw_snippets))
@@ -174,8 +212,14 @@ def _web_research_node(state: ResearchState) -> ResearchState:
     llm_facts: dict[str, Any] = {}
     if raw_snippets and llm is not None and HumanMessage is not None:
         llm_facts = _llm_extract_structured(
-            llm, model_label, name, raw_snippets,
-            tracker=cost_tracker, provider_cfg=provider_cfg,
+            llm,
+            model_label,
+            name,
+            raw_snippets,
+            tracker=cost_tracker,
+            provider_cfg=provider_cfg,
+            as_of_date=as_of.isoformat(),
+            sector_hint=state.get("inferred_sector", ""),
         )
 
     pkg: EvidencePackage = extract_evidence(
@@ -198,10 +242,9 @@ def _web_research_node(state: ResearchState) -> ResearchState:
         new_titles: list[str] = []
         new_dates: list[str | None] = []
 
+        targeted = _make_targeted_queries(name, as_of)
         for field in still_missing:
-            queries = _TARGETED_QUERIES.get(field, [])
-            for q_template in queries:
-                q = q_template.format(name=name)
+            for q in targeted.get(field, []):
                 s, t, d = _ddg_search_queries(name, [q])
                 new_snippets.extend(s)
                 new_titles.extend(t)
@@ -220,8 +263,14 @@ def _web_research_node(state: ResearchState) -> ResearchState:
         pkg = extract_evidence(raw_snippets, source_titles, name, as_of, source_dates=source_dates)
         if llm is not None and HumanMessage is not None:
             new_llm = _llm_extract_structured(
-                llm, model_label, name, new_snippets,
-                tracker=cost_tracker, provider_cfg=provider_cfg,
+                llm,
+                model_label,
+                name,
+                new_snippets,
+                tracker=cost_tracker,
+                provider_cfg=provider_cfg,
+                as_of_date=as_of.isoformat(),
+                sector_hint=state.get("inferred_sector", ""),
             )
             if new_llm:
                 llm_facts.update({k: v for k, v in new_llm.items() if v})
@@ -234,6 +283,36 @@ def _web_research_node(state: ResearchState) -> ResearchState:
         description = _generate_company_description(llm, name, raw_snippets[:10])
         if description:
             web_facts["company_description"] = description
+
+    # ── LLM judge: resolve conflicting valuation signals ──────────────────
+    # When the evidence package contains 2+ candidates that differ by >20%
+    # (e.g. $1B raise amount vs $5B post-money), the regex layer may not
+    # have fully resolved the ambiguity.  Ask the LLM to look at all
+    # candidates + raw context and confirm which is the real post-money val.
+    _POINT_IN_TIME = {"post_money_fresh", "post_money_stale", "secondary_market"}
+    judge_candidates = [e for e in pkg.evidence if e.evidence_type in _POINT_IN_TIME][:5]
+    if llm is not None and raw_snippets and _needs_judgment(judge_candidates):
+        judge_snippets = _relevant_snippets_for_judge(judge_candidates, raw_snippets)
+        judged_val, judge_reason = _llm_judge_valuation(
+            llm,
+            model_label,
+            name,
+            judge_candidates,
+            judge_snippets,
+            tracker=cost_tracker,
+            provider_cfg=provider_cfg,
+        )
+        if judged_val is not None:
+            prev = web_facts.get("last_post_money_valuation")
+            prev_str = f"${prev / 1e9:.2f}B" if prev else "none"
+            logger.info(
+                "web_research: llm_judge override post_money=$%.2fB (was %s)",
+                judged_val / 1e9,
+                prev_str,
+            )
+            web_facts["last_post_money_valuation"] = judged_val
+            if judge_reason:
+                web_facts["llm_judge_reason"] = judge_reason
 
     logger.info(
         "web_research: done company=%s snippets=%d evidence=%d "
@@ -288,40 +367,40 @@ def _build_web_facts(
 
     # Build candidate post-money values from evidence package (raise-safe).
     _POINT_IN_TIME = {"post_money_fresh", "post_money_stale", "secondary_market"}
-    pkg_post_money_candidates = [
-        e for e in pkg.evidence if e.evidence_type in _POINT_IN_TIME
-    ]
-    # Best high-confidence valuation from evidence package.
-    pkg_best_val: float | None = None
-    if pkg_post_money_candidates:
-        top = max(pkg_post_money_candidates, key=lambda e: e.confidence)
-        if top.confidence >= 0.60:
-            pkg_best_val = top.amount_usd
+    pkg_post_money_candidates = [e for e in pkg.evidence if e.evidence_type in _POINT_IN_TIME]
 
     llm_post_money: float | None = llm_facts.get("last_post_money_valuation")
 
-    # Prefer the higher of LLM and evidence package when both are present —
-    # evidence package patterns already suppress raise-amount context, so a
-    # higher evidence value likely means the LLM mistook the round size for
-    # the post-money (e.g. LLM=$1B, evidence=$5B → use $5B).
-    if pkg_best_val and llm_post_money:
-        chosen_post_money: float | None = max(pkg_best_val, llm_post_money)
-    else:
-        chosen_post_money = pkg_best_val or llm_post_money or inferred_last_post_money
+    # Select post-money by recency rather than magnitude.
+    # _select_valuation_by_recency prefers the candidate with the more recent
+    # round date; falls back to evidence-package value (raise-suppressed regex)
+    # when dates are unavailable.  This correctly handles down-rounds where
+    # the older higher valuation should NOT win.
+    chosen_post_money: float | None = (
+        _select_valuation_by_recency(
+            pkg_post_money_candidates,
+            llm_post_money,
+            llm_facts.get("last_round_date"),
+        )
+        or inferred_last_post_money
+    )
 
     best = pkg.best_evidence
     return {
         "revenue_ltm": pkg.best_revenue,
-        "last_round_date": pkg.best_round_date or llm_facts.get("last_round_date"),
+        "revenue_at_last_round": llm_facts.get("revenue_at_last_round"),
+        "last_round_date": _most_recent_date(pkg.best_round_date, llm_facts.get("last_round_date")),
         "last_round_amount_raised": (
             llm_facts.get("last_round_amount_raised") or inferred_last_round_amount
         ),
-        "last_post_money_valuation": chosen_post_money or (
+        "last_post_money_valuation": chosen_post_money
+        or (
             best.amount_usd
             if best and best.evidence_type in ("post_money_fresh", "post_money_stale")
             else None
         ),
         "company_description": llm_facts.get("company_description"),
+        "llm_inferred_sector": llm_facts.get("sector"),
         "sources": [],  # populated by caller who has source_titles
         "llm_model_version": llm_facts.get("_model_label"),
         "extraction_timestamp": datetime.now(timezone.utc).isoformat(),
@@ -331,8 +410,10 @@ def _build_web_facts(
 def _ddg_search(
     company_name: str,
     max_results_per_query: int = 6,
+    as_of: date | None = None,
 ) -> tuple[list[str], list[str], list[str | None]]:
-    return _ddg_search_queries(company_name, _SEARCH_QUERIES, max_results_per_query)
+    queries = _make_queries(as_of)
+    return _ddg_search_queries(company_name, queries, max_results_per_query)
 
 
 def _ddg_search_queries(
@@ -347,6 +428,15 @@ def _ddg_search_queries(
     if DDGS is None:
         logger.info("web_research: duckduckgo not installed — skipping")
         return [], [], []
+
+    # Return cached results to prevent non-determinism across repeated runs.
+    # Cache key includes the query text (which embeds the year range), so
+    # year boundaries correctly invalidate old cache entries.
+    _today = date.today().isoformat()
+    _cache_key = f"{company_name}|{_today}|{'|'.join(query_templates)}"
+    if _cache_key in _SEARCH_CACHE:
+        logger.debug("web_research: cache hit for %r", company_name)
+        return _SEARCH_CACHE[_cache_key]
 
     raw_snippets: list[str] = []
     source_titles: list[str] = []
@@ -372,7 +462,13 @@ def _ddg_search_queries(
     except Exception as exc:
         logger.warning("web_research: DuckDuckGo search failed: %s", exc)
 
-    return raw_snippets, source_titles, source_dates
+    result: tuple[list[str], list[str], list[str | None]] = (
+        raw_snippets,
+        source_titles,
+        source_dates,
+    )
+    _SEARCH_CACHE[_cache_key] = result
+    return result
 
 
 def _generate_company_description(
@@ -444,6 +540,94 @@ def _merge_llm_into_package(
         pkg.revenue_signals.append(float(rev))
 
 
+def _relevant_snippets_for_judge(
+    candidates: list[ValuationEvidence],
+    raw_snippets: list[str],
+    max_snippets: int = 8,
+) -> list[str]:
+    """Return snippets most likely to contain evidence about candidate values.
+
+    Scores each snippet by how many candidate amount strings it contains.
+    Snippets that mention at least one candidate amount are preferred over
+    generic snippets — this prevents the judge from seeing only unrelated
+    articles that happened to appear first in search results.
+    """
+    needles: list[str] = []
+    for ev in candidates:
+        b = ev.amount_usd / 1e9
+        needles += [f"{b:.0f}B", f"{b:.1f}B", f"{b:.0f} billion", f"${b:.0f}B"]
+
+    scored: list[tuple[int, str]] = []
+    for snippet in raw_snippets:
+        sl = snippet.lower()
+        score = sum(1 for n in needles if n.lower() in sl)
+        if score > 0:
+            scored.append((score, snippet))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    result = [s for _, s in scored[:max_snippets]]
+    # Always include at least the first 3 snippets as fallback context
+    for s in raw_snippets[:3]:
+        if len(result) >= max_snippets:
+            break
+        if s not in result:
+            result.append(s)
+    return result[:max_snippets]
+
+
+def _select_valuation_by_recency(
+    pkg_candidates: list[ValuationEvidence],
+    llm_post_money: float | None,
+    llm_round_date: str | None,
+) -> float | None:
+    """Return the valuation amount whose associated date is most recent.
+
+    Priority:
+    1. If only one source has a value, use it.
+    2. If both have a value and a round date, prefer the more recent one.
+    3. If dates are missing or equal, prefer the evidence-package value
+       (regex patterns are raise-suppressed, more reliable than a raw LLM number
+       when both lack date context).
+
+    This replaces the previous ``max(pkg_val, llm_val)`` call which incorrectly
+    preferred high-but-stale valuations over more-recent lower ones (down-rounds).
+    """
+    from vc_audit_tool.data_sources.evidence_collector import _date_sortable
+
+    pkg_top = max(pkg_candidates, key=lambda e: e.confidence) if pkg_candidates else None
+    pkg_val: float | None = None
+    pkg_date: str | None = None
+    if pkg_top and pkg_top.confidence >= 0.60:
+        pkg_val = pkg_top.amount_usd
+        pkg_date = pkg_top.date_mentioned
+
+    if pkg_val and llm_post_money:
+        pkg_sortable = _date_sortable(pkg_date) if pkg_date else ""
+        llm_sortable = _date_sortable(llm_round_date) if llm_round_date else ""
+        if pkg_sortable and llm_sortable:
+            # Both have dates — pick the more recent one
+            return pkg_val if pkg_sortable >= llm_sortable else llm_post_money
+        # One or both lack dates — prefer evidence package (raise-safe regex)
+        return pkg_val
+
+    return pkg_val or llm_post_money
+
+
+def _most_recent_date(a: str | None, b: str | None) -> str | None:
+    """Return whichever of *a* or *b* represents the more recent date.
+
+    Falls back to whichever is non-None; returns None if both are None.
+    Uses a simple string sort on the normalised ISO form (YYYY-MM-DD prefix).
+    """
+    if not a:
+        return b
+    if not b:
+        return a
+    # Normalise to YYYY-MM-DD for comparison; fall back to lexicographic order.
+    from vc_audit_tool.data_sources.evidence_collector import _date_sortable
+
+    return a if _date_sortable(a) >= _date_sortable(b) else b
+
+
 def _extract_best_post_money_from_package(pkg: EvidencePackage) -> float | None:
     valuations = [
         e.amount_usd
@@ -505,10 +689,15 @@ __all__ = [
     "_ddg_search",
     "_ddg_search_queries",
     "_generate_company_description",
+    "_make_queries",
+    "_make_targeted_queries",
     "_merge_llm_into_package",
+    "_relevant_snippets_for_judge",
     "_missing_fields",
     "_extract_best_post_money_from_package",
     "_extract_last_post_money_valuation",
     "_extract_last_round_amount_raised",
+    "_most_recent_date",
+    "_select_valuation_by_recency",
     "_web_research_node",
 ]

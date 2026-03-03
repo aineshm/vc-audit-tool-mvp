@@ -170,9 +170,7 @@ async def post_research(request: Request) -> JSONResponse:
                 result_dict = result.to_dict()
                 result_dict["research_metadata"] = research.research_metadata
                 orig_method = (
-                    assembled_request.get("methodology")
-                    if assembled_request
-                    else "unknown"
+                    assembled_request.get("methodology") if assembled_request else "unknown"
                 )
                 result_dict["research_metadata"]["fallback_note"] = (
                     f"Fell back to {fallback_req.get('methodology')}; "
