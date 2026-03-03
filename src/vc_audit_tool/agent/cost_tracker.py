@@ -36,7 +36,7 @@ class CostTracker:
     budget_limit: float = 1.00  # USD; raise BudgetExceededError if exceeded
     records: tuple[CostRecord, ...] = field(default_factory=tuple)
 
-    def add(self, record: CostRecord) -> "CostTracker":
+    def add(self, record: CostRecord) -> CostTracker:
         """Return a new tracker with the record appended."""
         return CostTracker(
             budget_limit=self.budget_limit,
@@ -81,6 +81,4 @@ def estimate_cost(
     cost_per_1k_output: float,
 ) -> float:
     """Compute USD cost from token counts and per-1k pricing."""
-    return (input_tokens / 1000) * cost_per_1k_input + (
-        output_tokens / 1000
-    ) * cost_per_1k_output
+    return (input_tokens / 1000) * cost_per_1k_input + (output_tokens / 1000) * cost_per_1k_output
