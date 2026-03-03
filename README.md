@@ -190,7 +190,7 @@ All four must pass before committing:
 ruff check src/ tests/               # linter (pyflakes, isort, bugbear, etc.)
 ruff format --check src/ tests/      # formatter
 mypy src/                            # strict type checking
-python3 -m pytest tests/ -q          # ~557 unit tests
+python3 -m pytest tests/ -q          # ~594 unit tests
 ```
 
 Current status:
@@ -198,7 +198,7 @@ Current status:
 ruff check:   ✅ All checks passed
 ruff format:  ✅ All files already formatted
 mypy:         ✅ Success: no issues found
-pytest:       ✅ 557 passed, 15 deselected (integration)
+pytest:       ✅ 594 passed, 15 deselected (integration)
 ```
 
 ---
@@ -570,6 +570,10 @@ Weights are dynamically adjusted based on data availability (e.g., round stalene
 | **Source Reliability** | 3-factor evidence confidence (type × recency × source tier), 35-entry domain tier map, `source_reliability_tier` field on all evidence | ✅ Complete |
 | **Discount Transparency** | Per-methodology configurable illiquidity discounts via YAML, `_discount_config.py`, explicit derivation steps | ✅ Complete |
 | **Frontend** | Next.js 16 + React 19 + Tailwind v4 — 6 routes, full API integration, dark mode, source reliability badges | ✅ Complete |
+| **Evidence Quality** | Raise/valuation disambiguation (7 phrasings), rumour pattern detection ("according to sources", "people familiar"), revenue contamination guard, day-level date precision | ✅ Complete |
+| **Cost-Aware LLM** | Per-call cost tracking, lite model routing (≤15 snippets), Anthropic prompt caching, XML prompt tags, narrow retry with backoff | ✅ Complete |
+| **LLM Judge** | Automated valuation conflict resolution — detects >20% spread across candidates, asks LLM to pick the correct post-money | ✅ Complete |
+| **Adaptive Research** | Per-process search cache for determinism, dynamic year-range queries, targeted follow-up queries for missing fields | ✅ Complete |
 
 ### Automated Research Agent (`POST /research`)
 
@@ -585,10 +589,12 @@ curl -X POST http://127.0.0.1:8080/research \
 
 1. **Parse** — normalise company name, infer sector from keywords
 2. **SEC Form D** — search EDGAR EFTS for Regulation D filings (funding rounds)
-3. **Web research** — 7 DuckDuckGo/DDGS queries × 6 results, then LLM-structured extraction
-4. **Federal contracts** — query USASpending.gov for government revenue
-5. **Assemble** — auto-select methodology, build a complete `ValuationRequest`
-6. **Engine** — run the valuation and return an auditable result with full derivation trail
+3. **Web research** — dynamic DuckDuckGo queries with per-process caching, then LLM-structured extraction with XML-tagged prompts
+4. **Adaptive follow-up** — targeted queries for missing fields (revenue, round date, post-money), up to 3 rounds
+5. **LLM judge** — when candidates disagree by >20%, asks the LLM to pick the correct post-money valuation
+6. **Federal contracts** — query USASpending.gov for government revenue
+7. **Assemble** — auto-select methodology from pre-computed evidence package, build a complete `ValuationRequest`
+8. **Engine** — run the valuation and return an auditable result with full derivation trail
 
 ### LLM Provider Configuration
 
