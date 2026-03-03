@@ -103,12 +103,22 @@ def test_pinecone_ranker_rank_mocks_client_pre_seeded(monkeypatch):
     # index.search() returns SDK 8.x response shape
     mock_index.search.return_value = _make_search_response(
         [
-            {"_score": 0.95, "fields": {
-                "ticker": "AAPL", "company_name": "Apple Inc.", "description": "Tech",
-            }},
-            {"_score": 0.85, "fields": {
-                "ticker": "MSFT", "company_name": "Microsoft Corp.", "description": "Software",
-            }},
+            {
+                "_score": 0.95,
+                "fields": {
+                    "ticker": "AAPL",
+                    "company_name": "Apple Inc.",
+                    "description": "Tech",
+                },
+            },
+            {
+                "_score": 0.85,
+                "fields": {
+                    "ticker": "MSFT",
+                    "company_name": "Microsoft Corp.",
+                    "description": "Software",
+                },
+            },
         ]
     )
 

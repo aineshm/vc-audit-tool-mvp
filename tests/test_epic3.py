@@ -656,6 +656,13 @@ class ContractsNodeTests(unittest.TestCase):
 class WebResearchNodeTests(unittest.TestCase):
     """Unit tests for _web_research_node (DuckDuckGo + regex + Ollama)."""
 
+    def setUp(self) -> None:
+        # Clear the per-process DDGS cache so each test starts with a clean
+        # slate and mocked search results are not shadowed by cached entries.
+        import vc_audit_tool.agent.nodes.web_research as _wm
+
+        _wm._SEARCH_CACHE.clear()
+
     def test_empty_name_returns_unchanged(self) -> None:
         from vc_audit_tool.agent.research import _web_research_node
 
