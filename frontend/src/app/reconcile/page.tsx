@@ -111,18 +111,19 @@ export default function ReconcilePage() {
         <div className="space-y-4">
           {result.concluded_value != null && (
             <FairValueDisplay
-              value={result.concluded_value}
+              value={result.concluded_value.point_estimate}
               label="Concluded Value"
             />
           )}
 
           {rec && (
             <div className="bg-white dark:bg-gray-900 border border-sand-200 dark:border-gray-800 rounded-xl p-4 space-y-4">
-              {rec.range_low != null && rec.range_high != null && (
+              {result.concluded_value && (
                 <p className="text-sm text-ink-light dark:text-gray-400">
                   Range:{" "}
                   <span className="font-mono font-bold text-teal-700 dark:text-teal-300">
-                    {formatMoney(rec.range_low)} – {formatMoney(rec.range_high)}
+                    {formatMoney(result.concluded_value.range_low)} –{" "}
+                    {formatMoney(result.concluded_value.range_high)}
                   </span>
                   {rec.divergence_flag && (
                     <span className="ml-2 text-xs bg-yellow-50 text-yellow-700 px-2 py-0.5 rounded-full font-bold">
@@ -132,9 +133,15 @@ export default function ReconcilePage() {
                 </p>
               )}
 
-              {rec.rationale && (
+              {rec.reconciliation_rationale && (
                 <p className="text-xs text-ink-light dark:text-gray-400 italic">
-                  {rec.rationale}
+                  {rec.reconciliation_rationale}
+                </p>
+              )}
+
+              {rec.divergence_note && (
+                <p className="text-xs text-yellow-700 dark:text-yellow-300 bg-yellow-50 dark:bg-yellow-950 rounded-lg p-2">
+                  {rec.divergence_note}
                 </p>
               )}
 
@@ -143,7 +150,7 @@ export default function ReconcilePage() {
                   Methodology Breakdown
                 </h4>
                 <div className="space-y-2">
-                  {(rec.methodology_weights ?? rec.methodology_results ?? []).map((mr) => (
+                  {(rec.methodology_weights ?? []).map((mr) => (
                     <div
                       key={mr.methodology}
                       className="flex items-center gap-3 py-2 border-t border-sand-100 dark:border-gray-800 first:border-0"
@@ -165,7 +172,9 @@ export default function ReconcilePage() {
                       </div>
                       <div className="text-right shrink-0">
                         <p className="font-mono text-sm font-bold text-teal-700 dark:text-teal-300">
-                          {formatMoney(mr.point_estimate)}
+                          {mr.point_estimate != null
+                            ? formatMoney(mr.point_estimate)
+                            : "—"}
                         </p>
                         <p className="text-xs text-ink-light dark:text-gray-400">
                           w={Math.round(mr.weight * 100)}%

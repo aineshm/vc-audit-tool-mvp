@@ -23,6 +23,7 @@ _SPREAD_FACTORS: dict[str, Decimal] = {
     "last_round_multiple_ratchet": Decimal("0.25"),
     "scorecard": Decimal("0.35"),
     "berkus": Decimal("0.35"),
+    "direct_valuation": Decimal("0.30"),
 }
 
 
@@ -42,6 +43,12 @@ class Reconciler:
         applicable_weights = [
             w for w in plan.weights if w.data_requirements_met and w.methodology in results
         ]
+
+        if not applicable_weights:
+            raise ValueError(
+                "No applicable methodologies: none of the selected methods "
+                "had both data_requirements_met=True and a computed result."
+            )
 
         # Extract point estimates
         point_estimates: dict[str, Decimal] = {}

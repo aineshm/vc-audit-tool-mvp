@@ -64,6 +64,8 @@ def _make_data_package(
     max_pre_money: Decimal | None = None,
     peer_set_quality: str | None = None,
     target_description: str | None = None,
+    evidence_signals: list[dict[str, Any]] | None = None,
+    consensus_strength: str | None = None,
 ) -> DataPackage:
     return DataPackage(
         last_post_money=last_post_money,
@@ -73,6 +75,8 @@ def _make_data_package(
         peer_set_quality=peer_set_quality,
         government_contracts_usd=None,
         as_of_date=date(2026, 2, 22),
+        evidence_signals=evidence_signals,
+        consensus_strength=consensus_strength,
         regional_median_pre_money=regional_median,
         scorecard_factors=scorecard_factors,
         berkus_factors=berkus_factors,
@@ -341,7 +345,7 @@ class TestMethodologySelectorStages(unittest.TestCase):
     def setUp(self) -> None:
         self.selector = MethodologySelector()
 
-    def test_pre_seed_only_scorecard_and_berkus(self) -> None:
+    def test_pre_seed_only_direct_valuation(self) -> None:
         profile = _make_profile(
             stage="pre_seed",
             has_revenue=False,
@@ -351,32 +355,22 @@ class TestMethodologySelectorStages(unittest.TestCase):
             revenue_ltm=None,
             last_post_money=None,
             last_round_date=None,
-            regional_median=Decimal("2000000"),
-            scorecard_factors={
-                "team": 1.0,
-                "opportunity": 1.0,
-                "product": 1.0,
-                "competitive": 1.0,
-                "marketing": 1.0,
-                "investment_need": 1.0,
-                "other": 1.0,
-            },
-            berkus_factors={
-                "sound_idea": True,
-                "prototype": True,
-                "quality_management": True,
-                "strategic_relationships": True,
-                "product_rollout": False,
-            },
-            max_pre_money=Decimal("2000000"),
+            evidence_signals=[
+                {
+                    "amount_usd": 5_000_000,
+                    "confidence": 0.8,
+                    "evidence_type": "press",
+                    "source_snippet": "test",
+                },
+            ],
         )
         plan = self.selector.select(profile, dp)
         method_names = {w.methodology for w in plan.weights if w.weight > 0}
-        self.assertEqual(method_names, {"scorecard", "berkus"})
+        self.assertEqual(method_names, {"direct_valuation"})
         total = sum(w.weight for w in plan.weights if w.weight > 0)
         self.assertAlmostEqual(float(total), 1.0, places=3)
 
-    def test_seed_excludes_ratchet(self) -> None:
+    def test_seed_uses_direct_valuation_and_last_round(self) -> None:
         profile = _make_profile(
             stage="seed",
             has_revenue=True,
@@ -387,28 +381,22 @@ class TestMethodologySelectorStages(unittest.TestCase):
             revenue_ltm=Decimal("500000"),
             last_post_money=Decimal("3000000"),
             last_round_date=date(2025, 8, 1),
-            regional_median=Decimal("2000000"),
-            scorecard_factors={
-                "team": 1.0,
-                "opportunity": 1.0,
-                "product": 1.0,
-                "competitive": 1.0,
-                "marketing": 1.0,
-                "investment_need": 1.0,
-                "other": 1.0,
-            },
-            berkus_factors={
-                "sound_idea": True,
-                "prototype": True,
-                "quality_management": True,
-                "strategic_relationships": True,
-                "product_rollout": True,
-            },
-            max_pre_money=Decimal("2000000"),
+            evidence_signals=[
+                {
+                    "amount_usd": 3_000_000,
+                    "confidence": 0.7,
+                    "evidence_type": "press",
+                    "source_snippet": "test",
+                },
+            ],
         )
         plan = self.selector.select(profile, dp)
         method_names = {w.methodology for w in plan.weights if w.weight > 0}
         self.assertNotIn("last_round_multiple_ratchet", method_names)
+        self.assertNotIn("scorecard", method_names)
+        self.assertNotIn("berkus", method_names)
+        self.assertIn("direct_valuation", method_names)
+        self.assertIn("last_round_market_adjusted", method_names)
 
     def test_growth_stage_default_weights(self) -> None:
         profile = _make_profile(stage="growth")
@@ -724,7 +712,7 @@ class TestReconciliationEngineIntegration(unittest.TestCase):
             "workflow automation software for healthcare ops teams",
         )
 
-    def test_pre_seed_scorecard_berkus(self) -> None:
+    def test_pre_seed_direct_valuation(self) -> None:
         from vc_audit_tool.reconciliation.engine import ReconciliationEngine
 
         engine = ReconciliationEngine.mock()
@@ -737,24 +725,20 @@ class TestReconciliationEngineIntegration(unittest.TestCase):
             revenue_ltm=None,
             last_post_money=None,
             last_round_date=None,
-            regional_median=Decimal("2000000"),
-            scorecard_factors={
-                "team": 1.2,
-                "opportunity": 1.0,
-                "product": 0.8,
-                "competitive": 1.0,
-                "marketing": 0.9,
-                "investment_need": 1.1,
-                "other": 1.0,
-            },
-            berkus_factors={
-                "sound_idea": True,
-                "prototype": 0.5,
-                "quality_management": True,
-                "strategic_relationships": False,
-                "product_rollout": False,
-            },
-            max_pre_money=Decimal("2500000"),
+            evidence_signals=[
+                {
+                    "amount_usd": 5_000_000,
+                    "confidence": 0.8,
+                    "evidence_type": "press",
+                    "source_snippet": "valued at $5M",
+                },
+                {
+                    "amount_usd": 4_500_000,
+                    "confidence": 0.6,
+                    "evidence_type": "analyst",
+                    "source_snippet": "~$4.5M",
+                },
+            ],
         )
         rv = engine.value(
             profile=profile,
@@ -764,9 +748,7 @@ class TestReconciliationEngineIntegration(unittest.TestCase):
         )
         self.assertIsInstance(rv, ReconciledValuation)
         method_names = set(rv.methodology_results.keys())
-        # Should only have scorecard and berkus
-        for m in method_names:
-            self.assertIn(m, {"scorecard", "berkus"})
+        self.assertEqual(method_names, {"direct_valuation"})
 
     def test_to_dict_structure(self) -> None:
         from vc_audit_tool.reconciliation.engine import ReconciliationEngine
@@ -854,6 +836,56 @@ class TestReconciledValuationModel(unittest.TestCase):
         self.assertEqual(d["concluded_value"]["as_of_date"], "2026-02-22")
         self.assertEqual(d["company_profile"]["name"], "TestCo")
         self.assertEqual(d["company_profile"]["stage"], "growth")
+
+
+# ── HTTP-level tests ──────────────────────────────────────────────────
+
+
+class TestReconcileEndpoint(unittest.TestCase):
+    """POST /reconcile via TestClient with mocked research agent."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from starlette.testclient import TestClient
+
+        from vc_audit_tool.server import app
+
+        cls.client = TestClient(app)
+
+    def test_missing_company_name_returns_400(self) -> None:
+        resp = self.client.post("/reconcile", json={"description_hint": "test"})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("company_name", resp.json()["error"])
+
+    def test_empty_company_name_returns_400(self) -> None:
+        resp = self.client.post("/reconcile", json={"company_name": ""})
+        self.assertEqual(resp.status_code, 400)
+
+
+# ── DataPackage evidence_signals mapping ─────────────────────────────
+
+
+class TestDataPackageEvidenceSignals(unittest.TestCase):
+    def test_evidence_signals_mapped(self) -> None:
+        signals = [
+            {
+                "amount_usd": 10_000_000,
+                "confidence": 0.9,
+                "evidence_type": "press",
+                "source_snippet": "t",
+            },
+        ]
+        assembled: dict[str, Any] = {
+            "inputs": {"evidence_signals": signals, "consensus_strength": "STRONG"},
+        }
+        dp = DataPackage.from_assembled_request(assembled)
+        self.assertEqual(dp.evidence_signals, signals)
+        self.assertEqual(dp.consensus_strength, "STRONG")
+
+    def test_empty_signals_mapped_as_none(self) -> None:
+        assembled: dict[str, Any] = {"inputs": {"evidence_signals": []}}
+        dp = DataPackage.from_assembled_request(assembled)
+        self.assertIsNone(dp.evidence_signals)
 
 
 if __name__ == "__main__":

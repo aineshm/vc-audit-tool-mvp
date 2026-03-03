@@ -237,5 +237,7 @@ def _check_data_requirements(
             data_package.max_pre_money_valuation is not None
             and data_package.berkus_factors is not None
         )
+    if method == "direct_valuation":
+        return data_package.evidence_signals is not None and len(data_package.evidence_signals) > 0
     # Unknown method — assume met
     return True

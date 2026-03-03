@@ -7,14 +7,15 @@ stage_exclusions:
       - comparable_companies
       - last_round_market_adjusted
       - last_round_multiple_ratchet
-    require:
       - scorecard
       - berkus
-    note: "Pre-revenue company — quantitative methods require revenue or round data"
+    note: "Pre-revenue company — direct_valuation only (scorecard/berkus require manual input)"
   seed:
     exclude:
       - last_round_multiple_ratchet
-    note: "Seed stage — ratchet methodology requires meaningful revenue at last round"
+      - scorecard
+      - berkus
+    note: "Seed stage — scorecard/berkus require manual input, ratchet needs revenue at last round"
 
 # Data-availability rules (applied after stage exclusions)
 data_rules:
@@ -52,12 +53,10 @@ data_rules:
 # Base weights by stage (before data-availability adjustments)
 base_weights:
   pre_seed:
-    scorecard: 0.50
-    berkus: 0.50
+    direct_valuation: 1.00
   seed:
-    scorecard: 0.35
-    berkus: 0.30
-    last_round_market_adjusted: 0.35
+    direct_valuation: 0.35
+    last_round_market_adjusted: 0.65
   early:
     comparable_companies: 0.50
     last_round_market_adjusted: 0.50

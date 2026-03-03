@@ -64,32 +64,44 @@ export interface EvidencePackage {
 }
 
 export interface CompanyProfile {
-  company_name: string;
+  name: string;
   stage: string;
   sector: string;
-  arr_usd: number | null;
+  age_years: number | null;
+  has_revenue: boolean;
+  estimated_arr: number | null;
+  last_round_age_months: number | null;
+  last_round_amount: number | null;
+  last_post_money: number | null;
+  sic_code: string | null;
   headcount: number | null;
-  sources: string[];
+  government_contracts_usd: number | null;
+  profile_summary: string;
+  sources_used: string[];
 }
 
 export interface MethodologyResult {
   methodology: string;
   weight: number;
-  point_estimate: number;
+  point_estimate: number | null;
   rationale: string;
   data_requirements_met: boolean;
-  valuation_result?: ValuationResult;
+}
+
+export interface ConcludedValue {
+  point_estimate: number;
+  range_low: number;
+  range_high: number;
+  currency: string;
+  as_of_date: string;
 }
 
 export interface ReconciliationSummary {
-  concluded_value: number;
-  range_low: number;
-  range_high: number;
   methodology_weights: MethodologyResult[];
-  methodology_results?: MethodologyResult[];
-  weights_used?: Record<string, number>;
-  rationale: string;
   divergence_flag: boolean;
+  divergence_note: string | null;
+  reconciliation_rationale: string;
+  selector_version: string;
 }
 
 export interface ResearchMetadata {
@@ -111,9 +123,9 @@ export interface ValuationEnvelope {
 }
 
 export interface ReconciledEnvelope {
-  concluded_value?: number;
+  concluded_value?: ConcludedValue;
   reconciliation?: ReconciliationSummary;
-  methodology_results?: MethodologyResult[];
+  methodology_results?: Record<string, Record<string, unknown>>;
   company_profile?: CompanyProfile;
   audit_metadata?: AuditMetadata;
   research_metadata?: ResearchMetadata;

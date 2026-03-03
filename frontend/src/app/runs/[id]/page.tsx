@@ -72,7 +72,7 @@ export default function RunDetailPage() {
           {data.valuation_result && (
             <div className="bg-white dark:bg-gray-900 border border-sand-200 dark:border-gray-800 rounded-xl p-4 space-y-4">
               <ConfidenceBar
-                value={data.valuation_result.confidence_indicators.overall}
+                value={data.valuation_result.confidence_indicators?.overall ?? 0}
                 label="Overall Confidence"
               />
               <DerivationSteps steps={data.valuation_result.derivation_steps} />

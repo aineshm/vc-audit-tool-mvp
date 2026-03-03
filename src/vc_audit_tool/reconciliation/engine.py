@@ -154,6 +154,13 @@ def _build_request(
         if dp.berkus_factors is not None:
             inputs["factors"] = dp.berkus_factors
 
+    elif methodology == "direct_valuation":
+        if dp.evidence_signals is not None:
+            inputs["evidence_signals"] = dp.evidence_signals
+        if dp.consensus_strength is not None:
+            inputs["consensus_strength"] = dp.consensus_strength
+        inputs["private_company_discount_pct"] = float(dp.private_company_discount_pct)
+
     return ValuationRequest(
         company_name=company_name,
         methodology=methodology,

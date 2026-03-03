@@ -6,10 +6,13 @@ const nextConfig: NextConfig = {
   async rewrites() {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
     return [
+      // Map frontend /api/* calls to backend endpoints (no /api/ prefix on backend)
+      { source: "/api/research", destination: `${apiBase}/research` },
+      { source: "/api/reconcile", destination: `${apiBase}/reconcile` },
+      { source: "/api/value", destination: `${apiBase}/value` },
+      // Backend endpoints that DO live under /api/
       { source: "/api/:path*", destination: `${apiBase}/api/:path*` },
-      { source: "/research", destination: `${apiBase}/research` },
-      { source: "/reconcile", destination: `${apiBase}/reconcile` },
-      { source: "/value", destination: `${apiBase}/value` },
+      // Direct proxies (for non-page routes)
       { source: "/health", destination: `${apiBase}/health` },
     ];
   },

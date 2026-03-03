@@ -81,6 +81,9 @@ class DataPackage:
     scorecard_factors: dict[str, float] | None = None
     berkus_factors: dict[str, bool | float] | None = None
     max_pre_money_valuation: Decimal | None = None
+    # Evidence-based valuation fields (direct_valuation methodology)
+    evidence_signals: list[dict[str, Any]] | None = None
+    consensus_strength: str | None = None
     # Extra fields forwarded to specific methodologies
     revenue_at_last_round: Decimal | None = None
     current_revenue: Decimal | None = None
@@ -119,6 +122,11 @@ class DataPackage:
             else:
                 aod = date.today()
 
+        raw_signals = inputs.get("evidence_signals")
+        evidence_signals: list[dict[str, Any]] | None = None
+        if isinstance(raw_signals, list) and len(raw_signals) > 0:
+            evidence_signals = raw_signals
+
         return DataPackage(
             last_post_money=_dec("last_post_money_valuation"),
             last_round_date=_date("last_round_date"),
@@ -127,6 +135,8 @@ class DataPackage:
             peer_set_quality=inputs.get("peer_set_quality"),
             government_contracts_usd=_dec("government_contracts_usd"),
             as_of_date=aod,
+            evidence_signals=evidence_signals,
+            consensus_strength=inputs.get("consensus_strength"),
             revenue_at_last_round=_dec("revenue_at_last_round"),
             current_revenue=_dec("current_revenue"),
             private_company_discount_pct=Decimal(

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
+import uuid
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -114,7 +116,10 @@ async def post_reconcile(request: Request) -> JSONResponse:
 
         data_package = DataPackage.from_assembled_request(assembled, aod)
 
-        recon_engine = ReconciliationEngine()
+        if os.environ.get("VC_AUDIT_MOCK"):
+            recon_engine = ReconciliationEngine.mock()
+        else:
+            recon_engine = ReconciliationEngine()
         result = recon_engine.value(
             profile=profile,
             data_package=data_package,
@@ -124,8 +129,16 @@ async def post_reconcile(request: Request) -> JSONResponse:
         )
 
         result_dict = result.to_dict()
+        # Generate a dedicated reconcile request_id
+        reconcile_id = f"reconcile-{uuid.uuid4()}"
+        result_dict.setdefault("audit_metadata", {})["request_id"] = reconcile_id
+
         store = request.app.state.store
-        store.save(result_dict)
+        try:
+            store.save(result_dict)
+        except Exception as save_exc:
+            logger.warning("store_save_failed error=%s", save_exc)
+
         elapsed_ms = (time.monotonic() - start) * 1000
         logger.info(
             "reconcile_ok company=%s methods=%d elapsed_ms=%.1f",

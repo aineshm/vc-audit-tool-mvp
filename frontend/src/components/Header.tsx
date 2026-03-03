@@ -21,15 +21,8 @@ export default function Header() {
   }, []);
 
   useEffect(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    setIsDark(mq.matches);
-    document.documentElement.classList.toggle("dark", mq.matches);
-    const handler = (e: MediaQueryListEvent) => {
-      setIsDark(e.matches);
-      document.documentElement.classList.toggle("dark", e.matches);
-    };
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
+    // Default to light mode to avoid text visibility issues
+    document.documentElement.classList.remove("dark");
   }, []);
 
   const toggleDark = () => {
