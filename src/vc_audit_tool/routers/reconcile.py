@@ -12,21 +12,12 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from vc_audit_tool.exceptions import DataSourceError, ValidationError
+from vc_audit_tool.routers.error_utils import sanitize_error
 from vc_audit_tool.services.valuation_service import read_json
 
 logger = logging.getLogger("vc_audit_tool.routers.reconcile")
 
 router = APIRouter()
-
-
-def _sanitize_error(exc: Exception) -> str:
-    """Return a user-safe error message, stripping internal paths and details."""
-    msg = str(exc)
-    if any(marker in msg for marker in ("/Users/", "/home/", "site-packages", "Traceback")):
-        return "Internal error during processing. Please try again or contact support."
-    if "database" in msg.lower() and ("locked" in msg.lower() or "operational" in msg.lower()):
-        return "Service temporarily unavailable. Please retry in a moment."
-    return msg
 
 
 @router.post("/reconcile")
@@ -82,7 +73,7 @@ async def post_reconcile(request: Request) -> JSONResponse:
         )
     except Exception as exc:
         logger.exception("reconcile_research_error company=%s error=%s", company_name, exc)
-        return JSONResponse({"error": _sanitize_error(exc)}, status_code=500)
+        return JSONResponse({"error": sanitize_error(exc)}, status_code=500)
 
     if not research.is_complete:
         elapsed_ms = (time.monotonic() - start) * 1000
@@ -162,11 +153,11 @@ async def post_reconcile(request: Request) -> JSONResponse:
         logger.warning("reconcile_valuation_error error=%s", exc)
         return JSONResponse(
             {
-                "error": _sanitize_error(exc),
+                "error": sanitize_error(exc),
                 "research_metadata": research.research_metadata,
             },
             status_code=400,
         )
     except Exception as exc:  # pragma: no cover
         logger.exception("reconcile_unhandled_error error=%s", exc)
-        return JSONResponse({"error": _sanitize_error(exc)}, status_code=500)
+        return JSONResponse({"error": sanitize_error(exc)}, status_code=500)
