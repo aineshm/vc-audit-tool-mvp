@@ -5,7 +5,7 @@ Routes are split across sub-modules:
   routers/research.py   -- POST /research
   routers/reconcile.py  -- POST /reconcile
 
-The single-page web UI is served from static/index.html.
+The web UI is served by a separate Next.js frontend.
 """
 
 from __future__ import annotations
