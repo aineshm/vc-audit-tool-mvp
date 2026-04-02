@@ -215,6 +215,8 @@ class SourceReliabilityTiersStructureTests(unittest.TestCase):
             "tier_1_premier_financial",
             "tier_2_specialist_tech",
             "tier_3_general_press",
+            "tier_4b_press_release",
+            "tier_4c_aggregator",
             "tier_5_low_quality",
         }
         for _, _, label in SOURCE_RELIABILITY_TIERS:

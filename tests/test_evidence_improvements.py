@@ -357,7 +357,7 @@ class RaiseValuationDisambiguationTests(unittest.TestCase):
 
     AS_OF = date(2026, 3, 1)
 
-    def _extract_amounts(self, snippet: str, company: str = "TestCo") -> list[float]:
+    def _extract_amounts(self, snippet: str, company: str = "World Labs") -> list[float]:
         pkg = extract_evidence([snippet], ["TechCrunch"], company, as_of=self.AS_OF)
         return [e.amount_usd for e in pkg.evidence]
 

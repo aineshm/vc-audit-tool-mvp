@@ -307,8 +307,24 @@ def extract_evidence(
     """
     pkg = EvidencePackage(company_name=company_name)
 
+    # Pre-compute company name tokens for relevance filtering.
+    # A snippet must mention at least one token from the company name to be
+    # considered on-topic.  This prevents articles about other companies
+    # (e.g. "Xflow raises $16M") from contributing evidence signals.
+    _name_tokens = [
+        t.lower()
+        for t in company_name.split()
+        if len(t) >= 3 and t.lower() not in {"inc", "inc.", "ltd", "llc", "corp", "the"}
+    ]
+
     for i, snippet in enumerate(snippets):
         title = source_titles[i] if i < len(source_titles) else None
+
+        # Skip snippets that don't mention the target company at all.
+        if _name_tokens:
+            combined_lower = (snippet + " " + (title or "")).lower()
+            if not any(tok in combined_lower for tok in _name_tokens):
+                continue
 
         # Prefer structured date from search backend over text extraction.
         structured_date: str | None = None
@@ -438,18 +454,17 @@ def _source_domain(ev: ValuationEvidence) -> str:
 
 
 def _deduplicate(evidence: list[ValuationEvidence]) -> list[ValuationEvidence]:
-    """Retain one item per (amount_bucket, evidence_type, source_domain) triple.
+    """Retain one item per (amount_bucket, evidence_type) pair.
 
-    Same source + same amount = duplicate.
-    Different sources + same amount = independent confirmation (kept).
+    When multiple sources report the same figure (within 15%), keep only the
+    highest-confidence one.  This prevents the same underlying fact reported
+    by 3 outlets from inflating consensus strength or crowding the top-5.
     """
     kept: list[ValuationEvidence] = []
     for ev in sorted(evidence, key=lambda e: e.confidence, reverse=True):
-        domain = _source_domain(ev)
         is_dup = any(
             abs(ev.amount_usd - k.amount_usd) / max(k.amount_usd, 1) < 0.15
             and ev.evidence_type == k.evidence_type
-            and _source_domain(k) == domain
             for k in kept
         )
         if not is_dup:

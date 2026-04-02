@@ -454,6 +454,16 @@ SOURCE_RELIABILITY_TIERS: list[tuple[str, float, str]] = [
     ("seeking alpha", 0.75, "tier_3_general_press"),
     ("wired", 0.75, "tier_3_general_press"),
     ("fast company", 0.75, "tier_3_general_press"),
+    # Tier 4b (0.55): Press release / newsroom reprints — often stale or misleading
+    ("newsroom", 0.55, "tier_4b_press_release"),
+    ("press release", 0.55, "tier_4b_press_release"),
+    ("prnewswire", 0.55, "tier_4b_press_release"),
+    ("businesswire", 0.55, "tier_4b_press_release"),
+    ("globenewswire", 0.55, "tier_4b_press_release"),
+    # Tier 4c (0.55): Aggregator / tracker sites
+    ("tracxn", 0.55, "tier_4c_aggregator"),
+    ("sacra", 0.55, "tier_4c_aggregator"),
+    ("coinlaw", 0.50, "tier_5_low_quality"),
     # Tier 5 (0.50): Known low-quality / SEO / aggregator
     ("medium.com", 0.50, "tier_5_low_quality"),
     ("substack.com", 0.50, "tier_5_low_quality"),
